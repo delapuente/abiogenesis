@@ -31,19 +31,19 @@ cargo build --release
 
 2. Set up your API key:
 ```bash
-./target/release/abiogenesis --set-api-key sk-ant-your-key-here
+./target/release/ergo --set-api-key sk-ant-your-key-here
 ```
 
 3. Start using it:
 ```bash
 # Generate and run a command to count files
-./target/release/abiogenesis file-count
+./target/release/ergo file-count
 
 # Generate a random number
-./target/release/abiogenesis random-number
+./target/release/ergo random-number
 
 # Check current timestamp  
-./target/release/abiogenesis current-time
+./target/release/ergo current-time
 ```
 
 ## 🎯 How It Works
@@ -125,7 +125,7 @@ ergo project-info        # Show project details (git branch, file count, etc.)
 cargo test
 
 # Test with mock mode (no API calls)
-ABIOGENESIS_USE_MOCK=1 cargo run test-command
+ABIOGENESIS_USE_MOCK=1 cargo run -- test-command
 ```
 
 ## 🤝 Contributing

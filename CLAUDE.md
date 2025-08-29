@@ -66,11 +66,11 @@ Commands are executed using **Deno** for security:
 - `cargo build --release` - Build optimized release version
 
 ### Testing the System
-- `cargo run hello world` - Test basic command generation
-- `cargo run timestamp` - Generate timestamp command
-- `cargo run project-info` - Show project information
-- `cargo run weather` - Fetch weather (demonstrates network permissions)
-- `cargo run uuid` - Generate UUID
+- `cargo run -- hello world` - Test basic command generation
+- `cargo run -- timestamp` - Generate timestamp command
+- `cargo run -- project-info` - Show project information
+- `cargo run -- weather` - Fetch weather (demonstrates network permissions)
+- `cargo run -- uuid` - Generate UUID
 
 ### Development
 - `cargo check` - Check for compile errors
@@ -99,8 +99,8 @@ Commands are executed using **Deno** for security:
 
 **Command Cache:**
 Generated commands are cached in separate directories based on mode:
-- **Production**: `~/.abiogenesis/cache/production/commands.json`  
-- **Mock Mode**: `~/.abiogenesis/cache/mock/commands.json`
+- **Production**: `~/.abiogenesis/biomas/production/commands.json`  
+- **Mock Mode**: `~/.abiogenesis/biomas/mock/commands.json`
 
 This ensures that test/development commands don't interfere with production commands.
 
@@ -126,18 +126,18 @@ Generated commands run in Deno's sandbox with explicit permissions. Each command
 1. **Production Mode** (default)
    ```bash
    export ANTHROPIC_API_KEY="your-key"
-   cargo run hello world  # Uses Claude API
+   cargo run -- hello world  # Uses Claude API
    ```
 
 2. **Fallback Mode** (no API key)
    ```bash
-   cargo run hello world  # Uses simple fallback generation
+   cargo run -- hello world  # Uses simple fallback generation
    ```
 
 3. **Mock Mode** (deterministic)
    ```bash
    export ABIOGENESIS_USE_MOCK=1
-   cargo run hello world  # Uses predefined mock responses
+   cargo run -- hello world  # Uses predefined mock responses
    ```
 
 ### Claude API Integration
