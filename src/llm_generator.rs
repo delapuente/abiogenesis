@@ -66,25 +66,26 @@ Get your API key from: https://console.anthropic.com"
 
     async fn call_claude_api(&self, command_name: &str, args: &[String], api_key: &str) -> Result<GeneratedCommand> {
         let prompt = format!(
-            "Generate a Deno/TypeScript command for '{}' with arguments {:?}.
+            "CRITICAL: Your response must be EXACTLY a JSON object. No explanations, no code blocks, no other text.
 
-Return ONLY a valid JSON object:
+Generate a Deno/TypeScript command for '{}' with arguments {:?}.
+
+RESPOND WITH EXACTLY THIS FORMAT (with your values):
 {{
   \"name\": \"{}\",
   \"description\": \"Brief description\",
-  \"script\": \"console.log('code here');\",
+  \"script\": \"console.log('working code here');\",
   \"permissions\": []
 }}
 
-Rules:
+RULES:
 - Create real, working functionality - no placeholder code
-- Use Deno APIs: Deno.readDir, Deno.writeTextFile, crypto.randomUUID, etc.
-- Arguments available as Deno.args - use them appropriately
-- MINIMAL PERMISSIONS: Use empty [] when possible, only add if absolutely required
+- Use Deno APIs when needed
+- Arguments available as Deno.args
+- Use MINIMAL permissions (empty [] preferred)
 - Valid permissions: --allow-read, --allow-write, --allow-net, --allow-env, --allow-run
-- Handle errors with try/catch
-- If using functions, include execution point
-- Return only JSON - no other text",
+- Include try/catch for error handling
+- CRITICAL: RESPOND ONLY WITH THE JSON OBJECT ABOVE - NO OTHER TEXT",
             command_name, args, command_name
         );
 
