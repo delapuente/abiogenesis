@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::env;
 use tracing::{info, warn};
 
 #[derive(Debug, Deserialize)]
@@ -79,30 +78,52 @@ Get your API key from: https://console.anthropic.com"
     }
 
     async fn call_claude_api(&self, command_name: &str, args: &[String], api_key: &str) -> Result<GenerationResult> {
-        let prompt = format!(
+        let prompt = self.build_unified_prompt(command_name, Some(args));
+        let mut result = self.call_claude_api_with_prompt(&prompt, api_key).await?;
+        // Override Claude's suggested name with the user's specified name
+        result.command.name = command_name.to_string();
+        result.command.script_file = format!("{}.ts", command_name);
+        Ok(result)
+    }
+
+    fn build_unified_prompt(&self, request: &str, args: Option<&[String]>) -> String {
+        let request_description = if let Some(args) = args {
+            // Command mode: describe the request as creating a command with specific name and args
+            format!("Create a command named '{}' that handles arguments {:?}", request, args)
+        } else {
+            // Conversational mode: use the user's natural language request directly
+            request.to_string()
+        };
+
+        format!(
             "CRITICAL: Your response must be EXACTLY a JSON object. No explanations, no code blocks, no other text.
 
-Generate a Deno/TypeScript command for '{}' with arguments {:?}.
+Based on this request: \"{}\"
+
+Create a Deno/TypeScript command and suggest a short, descriptive command name.
 
 RESPOND WITH EXACTLY THIS FORMAT (with your values):
 {{
-  \"name\": \"{}\",
-  \"description\": \"Brief description\",
+  \"name\": \"suggested-command-name\",
+  \"description\": \"Brief description of what this command does\",
   \"script\": \"console.log('working code here');\",
   \"permissions\": []
 }}
 
 RULES:
+- Choose a clear, short command name (2-3 words max, kebab-case)
 - Create real, working functionality - no placeholder code
 - Use Deno APIs when needed
-- Arguments available as Deno.args
+- Arguments available as Deno.args if the command should accept them
 - Use MINIMAL permissions (empty [] preferred)
 - Valid permissions: --allow-read, --allow-write, --allow-net, --allow-env, --allow-run
 - Include try/catch for error handling
 - CRITICAL: RESPOND ONLY WITH THE JSON OBJECT ABOVE - NO OTHER TEXT",
-            command_name, args, command_name
-        );
+            request_description
+        )
+    }
 
+    async fn call_claude_api_with_prompt(&self, prompt: &str, api_key: &str) -> Result<GenerationResult> {
         let request_body = json!({
             "model": "claude-3-haiku-20240307",
             "max_tokens": 1500,
@@ -142,10 +163,10 @@ RULES:
                     info!("Successfully parsed Claude-generated command");
                     let generation_result = GenerationResult {
                         command: GeneratedCommand {
-                            name: claude_response.name,
-                            description: claude_response.description,
-                            script_file: format!("{}.ts", command_name),
-                            permissions: claude_response.permissions,
+                            name: claude_response.name.clone(),
+                            description: claude_response.description.clone(),
+                            script_file: format!("{}.ts", claude_response.name),
+                            permissions: claude_response.permissions.clone(),
                         },
                         script_content: claude_response.script,
                     };
@@ -217,98 +238,10 @@ Get your API key from: https://console.anthropic.com"
     }
 
     async fn call_claude_api_for_description(&self, description: &str, api_key: &str) -> Result<GenerationResult> {
-        let prompt = format!(
-            "CRITICAL: Your response must be EXACTLY a JSON object. No explanations, no code blocks, no other text.
-
-Based on this user request: \"{}\"
-
-Create a Deno/TypeScript command. Suggest a short, descriptive command name.
-
-RESPOND WITH EXACTLY THIS FORMAT (with your values):
-{{
-  \"name\": \"suggested-command-name\",
-  \"description\": \"What this command does\",
-  \"script\": \"console.log('working code here');\",
-  \"permissions\": []
-}}
-
-RULES:
-- Choose a clear, short command name (2-3 words max, kebab-case)
-- Create real, working functionality based on the user's request
-- Use Deno APIs when needed
-- Arguments available as Deno.args if the command should accept them
-- Use MINIMAL permissions (empty [] preferred)
-- Valid permissions: --allow-read, --allow-write, --allow-net, --allow-env, --allow-run
-- Include try/catch for error handling
-- CRITICAL: RESPOND ONLY WITH THE JSON OBJECT ABOVE - NO OTHER TEXT",
-            description
-        );
-
-        let request_body = json!({
-            "model": "claude-3-haiku-20240307",
-            "max_tokens": 1500,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        });
-
-        let response = self
-            .client
-            .post("https://api.anthropic.com/v1/messages")
-            .header("x-api-key", api_key)
-            .header("content-type", "application/json")
-            .header("anthropic-version", "2023-06-01")
-            .json(&request_body)
-            .send()
-            .await?;
-
-        let response_text = response.text().await?;
-        info!("Claude API response for description: {}", response_text);
-        
-        // Parse Claude's response
-        if let Ok(claude_response) = serde_json::from_str::<serde_json::Value>(&response_text) {
-            if let Some(content) = claude_response.get("content")
-                .and_then(|c| c.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|item| item.get("text"))
-                .and_then(|text| text.as_str()) {
-                
-                info!("Extracted content from Claude: {}", content);
-                
-                // Try to parse the generated JSON
-                if let Ok(claude_response) = serde_json::from_str::<ClaudeResponse>(content) {
-                    info!("Successfully parsed Claude-generated conversational command");
-                    let generation_result = GenerationResult {
-                        command: GeneratedCommand {
-                            name: claude_response.name.clone(),
-                            description: claude_response.description.clone(),
-                            script_file: format!("{}.ts", claude_response.name),
-                            permissions: claude_response.permissions.clone(),
-                        },
-                        script_content: claude_response.script,
-                    };
-                    return Ok(generation_result);
-                } else {
-                    warn!("Failed to parse Claude response as ClaudeResponse: {}", content);
-                }
-            } else {
-                warn!("Failed to extract content from Claude response");
-            }
-        } else {
-            warn!("Failed to parse Claude response as JSON: {}", response_text);
-        }
-        
-        // If Claude response parsing fails, return an error
-        Err(anyhow!(
-            "Failed to parse Claude API response for conversational mode. The generated command was not in the expected JSON format.\\n\
-             Raw response: {}\\n\
-             This usually means the prompt needs adjustment or the API returned an error.",
-            response_text
-        ))
+        let prompt = self.build_unified_prompt(description, None);
+        self.call_claude_api_with_prompt(&prompt, api_key).await
     }
+
 }
 
 #[async_trait]
