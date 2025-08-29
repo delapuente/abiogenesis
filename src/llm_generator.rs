@@ -182,6 +182,135 @@ impl CommandGenerator for LlmGenerator {
     }
 }
 
+impl LlmGenerator {
+    pub async fn generate_command_from_description(&self, description: &str) -> Result<GenerationResult> {
+        info!("Generating command from description: {}", description);
+
+        let config = crate::config::Config::load()?;
+
+        // Check for mock mode
+        if config.is_mock_mode() {
+            info!("Using mock generator for conversational mode (ABIOGENESIS_USE_MOCK=1)");
+            return Ok(MockGenerator::new().mock_generate_from_description(description));
+        }
+
+        // Production mode: require API key
+        if let Some(api_key) = config.get_api_key() {
+            info!("Using Claude API for conversational command generation");
+            self.call_claude_api_for_description(description, api_key).await
+        } else {
+            return Err(anyhow!(
+                "No Anthropic API key found for conversational mode. Please set it using one of these methods:\n\
+                \n\
+1. Set API key in config:\n\
+   ergo --set-api-key sk-ant-your-key-here\n\
+   \n\
+2. Set environment variable:\n\
+   export ANTHROPIC_API_KEY=sk-ant-your-key-here\n\
+   \n\
+3. Check current config:\n\
+   ergo --config\n\
+   \n\
+Get your API key from: https://console.anthropic.com"
+            ));
+        }
+    }
+
+    async fn call_claude_api_for_description(&self, description: &str, api_key: &str) -> Result<GenerationResult> {
+        let prompt = format!(
+            "CRITICAL: Your response must be EXACTLY a JSON object. No explanations, no code blocks, no other text.
+
+Based on this user request: \"{}\"
+
+Create a Deno/TypeScript command. Suggest a short, descriptive command name.
+
+RESPOND WITH EXACTLY THIS FORMAT (with your values):
+{{
+  \"name\": \"suggested-command-name\",
+  \"description\": \"What this command does\",
+  \"script\": \"console.log('working code here');\",
+  \"permissions\": []
+}}
+
+RULES:
+- Choose a clear, short command name (2-3 words max, kebab-case)
+- Create real, working functionality based on the user's request
+- Use Deno APIs when needed
+- Arguments available as Deno.args if the command should accept them
+- Use MINIMAL permissions (empty [] preferred)
+- Valid permissions: --allow-read, --allow-write, --allow-net, --allow-env, --allow-run
+- Include try/catch for error handling
+- CRITICAL: RESPOND ONLY WITH THE JSON OBJECT ABOVE - NO OTHER TEXT",
+            description
+        );
+
+        let request_body = json!({
+            "model": "claude-3-haiku-20240307",
+            "max_tokens": 1500,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        });
+
+        let response = self
+            .client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", api_key)
+            .header("content-type", "application/json")
+            .header("anthropic-version", "2023-06-01")
+            .json(&request_body)
+            .send()
+            .await?;
+
+        let response_text = response.text().await?;
+        info!("Claude API response for description: {}", response_text);
+        
+        // Parse Claude's response
+        if let Ok(claude_response) = serde_json::from_str::<serde_json::Value>(&response_text) {
+            if let Some(content) = claude_response.get("content")
+                .and_then(|c| c.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|item| item.get("text"))
+                .and_then(|text| text.as_str()) {
+                
+                info!("Extracted content from Claude: {}", content);
+                
+                // Try to parse the generated JSON
+                if let Ok(claude_response) = serde_json::from_str::<ClaudeResponse>(content) {
+                    info!("Successfully parsed Claude-generated conversational command");
+                    let generation_result = GenerationResult {
+                        command: GeneratedCommand {
+                            name: claude_response.name.clone(),
+                            description: claude_response.description.clone(),
+                            script_file: format!("{}.ts", claude_response.name),
+                            permissions: claude_response.permissions.clone(),
+                        },
+                        script_content: claude_response.script,
+                    };
+                    return Ok(generation_result);
+                } else {
+                    warn!("Failed to parse Claude response as ClaudeResponse: {}", content);
+                }
+            } else {
+                warn!("Failed to extract content from Claude response");
+            }
+        } else {
+            warn!("Failed to parse Claude response as JSON: {}", response_text);
+        }
+        
+        // If Claude response parsing fails, return an error
+        Err(anyhow!(
+            "Failed to parse Claude API response for conversational mode. The generated command was not in the expected JSON format.\\n\
+             Raw response: {}\\n\
+             This usually means the prompt needs adjustment or the API returned an error.",
+            response_text
+        ))
+    }
+}
+
 #[async_trait]
 impl CommandGenerator for MockGenerator {
     async fn generate_command(&self, command_name: &str, args: &[String]) -> Result<GenerationResult> {
@@ -268,6 +397,66 @@ impl MockGenerator {
             command: GeneratedCommand {
                 name: command_name.to_string(),
                 description,
+                script_file: format!("{}.ts", command_name),
+                permissions,
+            },
+            script_content: script,
+        }
+    }
+
+    pub fn mock_generate_from_description(&self, description: &str) -> GenerationResult {
+        // Mock implementation for conversational mode - analyze description and suggest command
+        let (command_name, desc_text, script, permissions) = if description.contains("timestamp") || description.contains("time") {
+            (
+                "show-time".to_string(),
+                "Display current timestamp".to_string(),
+                "const now = new Date(); console.log(now.toISOString());".to_string(),
+                vec![],
+            )
+        } else if (description.contains("json") && description.contains("format")) || (description.contains("JSON") && description.contains("format")) {
+            (
+                "format-json".to_string(),
+                "Format JSON input with proper indentation".to_string(),
+                "try { const data = JSON.parse(Deno.args[0] || '{}'); console.log(JSON.stringify(data, null, 2)); } catch (err) { console.error('Invalid JSON:', err.message); }".to_string(),
+                vec![],
+            )
+        } else if description.contains("list") && description.contains("file") {
+            (
+                "list-files".to_string(),
+                "List files in current directory".to_string(),
+                "try { for await (const entry of Deno.readDir('.')) { console.log(entry.name); } } catch (err) { console.error(err); }".to_string(),
+                vec!["--allow-read".to_string()],
+            )
+        } else if description.contains("random") || description.contains("uuid") || description.contains("UUID") {
+            (
+                "generate-id".to_string(),
+                "Generate a random UUID".to_string(),
+                "console.log(crypto.randomUUID());".to_string(),
+                vec![],
+            )
+        } else if description.contains("hello") || description.contains("greet") {
+            (
+                "greet-user".to_string(),
+                "Greet the user".to_string(),
+                "console.log('Hello! This command was generated from your description.');".to_string(),
+                vec![],
+            )
+        } else {
+            // Generic fallback based on description
+            let words: Vec<&str> = description.split_whitespace().take(3).collect();
+            let command_name = words.join("-").to_lowercase();
+            (
+                command_name.clone(),
+                format!("Generated command from: {}", description),
+                format!("console.log('Mock command for: {}');", description),
+                vec![],
+            )
+        };
+
+        GenerationResult {
+            command: GeneratedCommand {
+                name: command_name.clone(),
+                description: desc_text,
                 script_file: format!("{}.ts", command_name),
                 permissions,
             },

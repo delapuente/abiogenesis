@@ -211,3 +211,149 @@ fn test_deno_requirement() -> Result<()> {
     
     Ok(())
 }
+
+#[test]
+fn test_conversational_mode_time_command() -> Result<()> {
+    let output = run_ergo_command(&["create a command that shows the current time"])?;
+    
+    assert!(output.status.success(), "Conversational mode should succeed");
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Check conversational mode indicators
+    assert!(stdout.contains("💭 Understanding your request"), "Should show conversational mode activation");
+    assert!(stdout.contains("🎯 Generated command:"), "Should show generated command name");
+    assert!(stdout.contains("📝 Description:"), "Should show command description");
+    assert!(stdout.contains("show-time"), "Should suggest 'show-time' command name");
+    
+    Ok(())
+}
+
+#[test]
+fn test_conversational_mode_json_command() -> Result<()> {
+    let output = run_ergo_command(&["I need to format json properly"])?;
+    
+    assert!(output.status.success(), "Conversational JSON command should succeed");
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("💭 Understanding your request"), "Should detect conversational mode");
+    assert!(stdout.contains("🎯 Generated command:"), "Should generate a command");
+    assert!(stdout.contains("format-json"), "Should suggest format-json command name");
+    
+    Ok(())
+}
+
+#[test]
+fn test_conversational_mode_file_listing() -> Result<()> {
+    let output = run_ergo_command(&["create a command to list files in directory"])?;
+    
+    assert!(output.status.success(), "Conversational file listing should succeed");
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("💭 Understanding your request"), "Should activate conversational mode");
+    assert!(stdout.contains("list-files"), "Should suggest list-files command name");
+    // Since this requires file permissions, it should show them
+    assert!(stdout.contains("🔒 Deno permissions required:"), "Should show required permissions");
+    assert!(stdout.contains("--allow-read"), "Should require read permission");
+    
+    Ok(())
+}
+
+#[test]
+fn test_conversational_mode_uuid_generation() -> Result<()> {
+    let output = run_ergo_command(&["I need a command that generates uuid"])?;
+    
+    assert!(output.status.success(), "Conversational UUID command should succeed");
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("💭 Understanding your request"), "Should detect conversational mode");
+    assert!(stdout.contains("generate-id"), "Should suggest generate-id command name");
+    
+    // Should generate and output a UUID
+    let has_uuid_pattern = stdout.lines().any(|line| {
+        let trimmed = line.trim();
+        // Look for UUID pattern (8-4-4-4-12 format)
+        trimmed.len() == 36 &&
+        trimmed.chars().nth(8) == Some('-') &&
+        trimmed.chars().nth(13) == Some('-') &&
+        trimmed.chars().nth(18) == Some('-') &&
+        trimmed.chars().nth(23) == Some('-')
+    });
+    
+    assert!(has_uuid_pattern, "Should output a valid UUID");
+    
+    Ok(())
+}
+
+#[test]
+fn test_conversational_mode_greeting() -> Result<()> {
+    let output = run_ergo_command(&["create a greeting command"])?;
+    
+    assert!(output.status.success(), "Conversational greeting should succeed");
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("💭 Understanding your request"), "Should detect conversational mode");
+    assert!(stdout.contains("greet-user"), "Should suggest greet-user command name");
+    assert!(stdout.contains("Hello!"), "Should execute the greeting command");
+    
+    Ok(())
+}
+
+#[test]
+fn test_conversational_mode_fallback() -> Result<()> {
+    let output = run_ergo_command(&["some custom weird unique request that does not match patterns"])?;
+    
+    assert!(output.status.success(), "Conversational fallback should succeed");
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("💭 Understanding your request"), "Should detect conversational mode");
+    assert!(stdout.contains("🎯 Generated command:"), "Should generate a command");
+    
+    // Should create a fallback command based on the first few words
+    let has_fallback_pattern = stdout.contains("some-custom-weird") || stdout.contains("Mock command");
+    assert!(has_fallback_pattern, "Should create fallback command from description");
+    
+    Ok(())
+}
+
+#[test]
+fn test_conversational_vs_regular_mode() -> Result<()> {
+    // Test regular mode (no spaces, single word command)
+    let output1 = run_ergo_command(&["singleword"])?;
+    assert!(output1.status.success());
+    let stdout1 = String::from_utf8_lossy(&output1.stdout);
+    // Should NOT contain conversational indicators
+    assert!(!stdout1.contains("💭 Understanding your request"), "Regular mode should not show conversational indicators");
+    
+    // Test conversational mode (with spaces)
+    let output2 = run_ergo_command(&["this is a conversational request"])?;
+    assert!(output2.status.success());
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+    // SHOULD contain conversational indicators
+    assert!(stdout2.contains("💭 Understanding your request"), "Conversational mode should be detected");
+    
+    Ok(())
+}
+
+#[test]
+fn test_generated_conversational_command_persistence() -> Result<()> {
+    // Generate a command through conversational mode
+    let output1 = run_ergo_command(&["make a command that says hello world"])?;
+    assert!(output1.status.success());
+    
+    let stdout1 = String::from_utf8_lossy(&output1.stdout);
+    assert!(stdout1.contains("💭 Understanding your request"), "Should use conversational mode");
+    
+    // Extract the generated command name (should be "greet-user" based on mock)
+    let command_name = "greet-user";
+    
+    // Now call the command directly (not conversational mode)
+    let output2 = run_ergo_command(&[command_name])?;
+    assert!(output2.status.success());
+    
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+    // Should execute the cached command without conversational mode
+    assert!(!stdout2.contains("💭 Understanding your request"), "Direct call should not use conversational mode");
+    assert!(stdout2.contains("Hello!"), "Should execute the cached greeting command");
+    
+    Ok(())
+}

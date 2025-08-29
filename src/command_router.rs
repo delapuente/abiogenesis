@@ -19,6 +19,12 @@ impl CommandRouter {
     }
 
     pub async fn process_intent(&mut self, intent_args: Vec<String>) -> Result<()> {
+        // Check if this is conversational mode (single argument with spaces = natural language description)
+        if intent_args.len() == 1 && intent_args[0].contains(' ') {
+            info!("Detected conversational mode: {}", intent_args[0]);
+            return self.process_conversational_intent(&intent_args[0]).await;
+        }
+
         let command_name = &intent_args[0];
         let args = &intent_args[1..];
 
@@ -45,5 +51,22 @@ impl CommandRouter {
         
         // Execute the generated command
         self.executor.execute_generated_command(&generation_result.command, &self.cache, args).await
+    }
+
+    async fn process_conversational_intent(&mut self, description: &str) -> Result<()> {
+        info!("Processing conversational intent: {}", description);
+        println!("💭 Understanding your request: {}", description);
+        
+        // Generate command from natural language description
+        let generation_result = self.generator.generate_command_from_description(description).await?;
+        
+        println!("🎯 Generated command: {}", generation_result.command.name);
+        println!("📝 Description: {}", generation_result.command.description);
+        
+        // Cache the generated command and its script
+        self.cache.store_command(&generation_result.command.name, &generation_result.command, &generation_result.script_content).await?;
+        
+        // Execute the generated command (no additional args for conversational mode)
+        self.executor.execute_generated_command(&generation_result.command, &self.cache, &[]).await
     }
 }
