@@ -1,4 +1,4 @@
-use crate::{command_cache::CommandCache, executor::Executor, llm_generator::LlmGenerator};
+use crate::{command_cache::CommandCache, executor::Executor, llm_generator::{LlmGenerator, CommandGenerator}};
 use anyhow::Result;
 use tracing::{info, warn};
 use which::which;

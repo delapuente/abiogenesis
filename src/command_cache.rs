@@ -40,7 +40,14 @@ impl CommandCache {
 
     fn get_cache_dir() -> Result<PathBuf> {
         let home = home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-        Ok(home.join(".abiogenesis").join("cache"))
+        let base_dir = home.join(".abiogenesis").join("cache");
+        
+        // Use separate cache directories for different modes
+        if std::env::var("ABIOGENESIS_USE_MOCK").is_ok() {
+            Ok(base_dir.join("mock"))
+        } else {
+            Ok(base_dir.join("production"))
+        }
     }
 
     pub async fn get_command(&self, name: &str) -> Result<Option<GeneratedCommand>> {

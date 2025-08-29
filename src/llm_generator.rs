@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -11,12 +12,18 @@ pub struct GeneratedCommand {
     pub description: String,
     pub script: String,
     pub permissions: Vec<String>, // Deno permissions like --allow-read, --allow-net
-    pub safe: bool,              // whether the command is safe to execute
+}
+
+#[async_trait]
+pub trait CommandGenerator {
+    async fn generate_command(&self, command_name: &str, args: &[String]) -> Result<GeneratedCommand>;
 }
 
 pub struct LlmGenerator {
     client: Client,
 }
+
+pub struct MockGenerator;
 
 impl LlmGenerator {
     pub fn new() -> Self {
@@ -25,21 +32,145 @@ impl LlmGenerator {
         }
     }
 
-    pub async fn generate_command(&self, command_name: &str, args: &[String]) -> Result<GeneratedCommand> {
+
+    async fn generate_command_impl(&self, command_name: &str, args: &[String]) -> Result<GeneratedCommand> {
+        let config = crate::config::Config::load()?;
+
+        // Check for mock mode
+        if config.is_mock_mode() {
+            info!("Using mock generator (ABIOGENESIS_USE_MOCK=1)");
+            return Ok(MockGenerator::new().mock_generate_command(command_name, args));
+        }
+
+        // Production mode: require API key
+        if let Some(api_key) = config.get_api_key() {
+            info!("Using Claude API for command generation");
+            self.call_claude_api(command_name, args, api_key).await
+        } else {
+            return Err(anyhow!(
+                "No Anthropic API key found. Please set it using one of these methods:
+                
+1. Set API key in config:
+   ergo --set-api-key sk-ant-your-key-here
+   
+2. Set environment variable:
+   export ANTHROPIC_API_KEY=sk-ant-your-key-here
+   
+3. Check current config:
+   ergo --config
+   
+Get your API key from: https://console.anthropic.com"
+            ));
+        }
+    }
+
+    async fn call_claude_api(&self, command_name: &str, args: &[String], api_key: &str) -> Result<GeneratedCommand> {
+        let prompt = format!(
+            "Generate a Deno/TypeScript command for '{}' with arguments {:?}.
+
+Return ONLY a valid JSON object:
+{{
+  \"name\": \"{}\",
+  \"description\": \"Brief description\",
+  \"script\": \"console.log('code here');\",
+  \"permissions\": []
+}}
+
+Rules:
+- Create real, working functionality - no placeholder code
+- Use Deno APIs: Deno.readDir, Deno.writeTextFile, crypto.randomUUID, etc.
+- Arguments available as Deno.args - use them appropriately
+- MINIMAL PERMISSIONS: Use empty [] when possible, only add if absolutely required
+- Valid permissions: --allow-read, --allow-write, --allow-net, --allow-env, --allow-run
+- Handle errors with try/catch
+- If using functions, include execution point
+- Return only JSON - no other text",
+            command_name, args, command_name
+        );
+
+        let request_body = json!({
+            "model": "claude-3-haiku-20240307",
+            "max_tokens": 1500,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        });
+
+        let response = self
+            .client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", api_key)
+            .header("content-type", "application/json")
+            .header("anthropic-version", "2023-06-01")
+            .json(&request_body)
+            .send()
+            .await?;
+
+        let response_text = response.text().await?;
+        info!("Claude API response: {}", response_text);
+        
+        // Parse Claude's response
+        if let Ok(claude_response) = serde_json::from_str::<serde_json::Value>(&response_text) {
+            if let Some(content) = claude_response.get("content")
+                .and_then(|c| c.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|item| item.get("text"))
+                .and_then(|text| text.as_str()) {
+                
+                info!("Extracted content from Claude: {}", content);
+                
+                // Try to parse the generated JSON
+                if let Ok(generated_command) = serde_json::from_str::<GeneratedCommand>(content) {
+                    info!("Successfully parsed Claude-generated command");
+                    return Ok(generated_command);
+                } else {
+                    warn!("Failed to parse Claude response as GeneratedCommand: {}", content);
+                }
+            } else {
+                warn!("Failed to extract content from Claude response");
+            }
+        } else {
+            warn!("Failed to parse Claude response as JSON: {}", response_text);
+        }
+        
+        // If Claude response parsing fails, return an error instead of a useless fallback
+        Err(anyhow!(
+            "Failed to parse Claude API response. The generated command was not in the expected JSON format.\n\
+             Raw response: {}\n\
+             This usually means the prompt needs adjustment or the API returned an error.",
+            response_text
+        ))
+    }
+}
+
+#[async_trait]
+impl CommandGenerator for LlmGenerator {
+    async fn generate_command(&self, command_name: &str, args: &[String]) -> Result<GeneratedCommand> {
         info!("Generating command for: {} with args: {:?}", command_name, args);
 
-        // For now, let's create a mock implementation
-        // In a real implementation, this would call an LLM API (OpenAI, Anthropic, etc.)
-        let generated_command = self.mock_generate_command(command_name, args).await?;
-
-        if !generated_command.safe {
-            warn!("Generated command marked as potentially unsafe: {}", command_name);
-        }
+        // In production: use real LLM API, in tests: use mock
+        let generated_command = self.generate_command_impl(command_name, args).await?;
 
         Ok(generated_command)
     }
+}
 
-    async fn mock_generate_command(&self, command_name: &str, _args: &[String]) -> Result<GeneratedCommand> {
+#[async_trait]
+impl CommandGenerator for MockGenerator {
+    async fn generate_command(&self, command_name: &str, args: &[String]) -> Result<GeneratedCommand> {
+        Ok(self.mock_generate_command(command_name, args))
+    }
+}
+
+impl MockGenerator {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn mock_generate_command(&self, command_name: &str, _args: &[String]) -> GeneratedCommand {
         // Mock implementation that generates Deno/TypeScript commands based on name patterns
         let (description, script, permissions) = match command_name {
             name if name.starts_with("git-") => {
@@ -109,53 +240,11 @@ impl LlmGenerator {
             )
         };
 
-        Ok(GeneratedCommand {
+        GeneratedCommand {
             name: command_name.to_string(),
             description,
             script,
             permissions,
-            safe: true, // Mark as safe for demo purposes
-        })
-    }
-
-    #[allow(dead_code)]
-    async fn call_openai_api(&self, command_name: &str, args: &[String]) -> Result<GeneratedCommand> {
-        let api_key = env::var("OPENAI_API_KEY")
-            .map_err(|_| anyhow!("OPENAI_API_KEY environment variable not set"))?;
-
-        let prompt = format!(
-            "Generate a shell command for '{}' with arguments {:?}. 
-            Return a JSON object with: name, description, script (executable shell script), language, safe (boolean).
-            Make the script practical and useful. If unsafe, set safe to false.",
-            command_name, args
-        );
-
-        let request_body = json!({
-            "model": "gpt-3.5-turbo",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant that generates shell commands based on user intent."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            "max_tokens": 500
-        });
-
-        let _response = self
-            .client
-            .post("https://api.openai.com/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await?;
-
-        // Parse response and extract generated command
-        // This is a simplified implementation
-        todo!("Implement OpenAI API response parsing")
+        }
     }
 }

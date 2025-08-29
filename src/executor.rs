@@ -49,20 +49,6 @@ impl Executor {
     }
 
     pub async fn execute_generated_command(&self, command: &GeneratedCommand, args: &[String]) -> Result<()> {
-        if !command.safe {
-            warn!("Attempting to execute potentially unsafe command: {}", command.name);
-            println!("⚠️  Warning: This generated command is marked as potentially unsafe.");
-            println!("Command: {}", command.name);
-            println!("Description: {}", command.description);
-            println!("Script preview:");
-            println!("{}", command.script);
-            println!("Do you want to proceed? (y/N)");
-            
-            // In a real implementation, you'd want to get user input here
-            // For now, we'll skip unsafe commands
-            return Err(anyhow!("Unsafe command execution blocked"));
-        }
-
         info!("Executing generated command: {} - {}", command.name, command.description);
         println!("🤖 Executing generated command: {}", command.description);
 

@@ -8,6 +8,9 @@ fn run_ergo_command(args: &[&str]) -> Result<std::process::Output> {
     cmd.arg("--");
     cmd.args(args);
     
+    // Enable mock mode for deterministic testing
+    cmd.env("ABIOGENESIS_USE_MOCK", "1");
+    
     let output = cmd.output()?;
     Ok(output)
 }
