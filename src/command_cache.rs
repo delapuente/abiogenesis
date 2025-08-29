@@ -151,13 +151,80 @@ impl CommandCache {
         Ok(None)
     }
 
-    pub async fn store_command(&mut self, name: &str, command: &GeneratedCommand) -> Result<()> {
+    pub fn get_script_content(&self, command: &GeneratedCommand) -> Result<String> {
+        // First try the write cache directory
+        let script_path = self.write_cache_dir.join(&command.script_file);
+        if script_path.exists() {
+            return Ok(fs::read_to_string(&script_path)?);
+        }
+        
+        // Then search up the hierarchy for the script file
+        let mut current_dir = env::current_dir()?;
+        
+        loop {
+            let abiogenesis_dir = current_dir.join(".abiogenesis");
+            if abiogenesis_dir.exists() && abiogenesis_dir.is_dir() {
+                let biomas_dir = abiogenesis_dir.join("biomas");
+                
+                let cache_dir = if env::var("ABIOGENESIS_USE_MOCK").is_ok() {
+                    biomas_dir.join("mock")
+                } else {
+                    biomas_dir.join("production")
+                };
+                
+                let script_path = cache_dir.join(&command.script_file);
+                if script_path.exists() {
+                    debug!("Found script file '{}' at {:?}", command.script_file, cache_dir);
+                    return Ok(fs::read_to_string(&script_path)?);
+                }
+            }
+            
+            // Move to parent directory
+            match current_dir.parent() {
+                Some(parent) => current_dir = parent.to_path_buf(),
+                None => break,
+            }
+        }
+        
+        // Check home directory as fallback
+        let home = home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+        let base_dir = home.join(".abiogenesis").join("biomas");
+        
+        let cache_dir = if env::var("ABIOGENESIS_USE_MOCK").is_ok() {
+            base_dir.join("mock")
+        } else {
+            base_dir.join("production")
+        };
+        
+        let script_path = cache_dir.join(&command.script_file);
+        if script_path.exists() {
+            debug!("Found script file '{}' in home cache at {:?}", command.script_file, cache_dir);
+            return Ok(fs::read_to_string(&script_path)?);
+        }
+        
+        Err(anyhow::anyhow!("Script file '{}' not found in any biomas directory", command.script_file))
+    }
+
+    pub async fn store_command(&mut self, name: &str, command: &GeneratedCommand, script_content: &str) -> Result<()> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs();
 
+        // Write the script file directly to the biomas directory
+        let script_filename = format!("{}.ts", name);
+        let script_path = self.write_cache_dir.join(&script_filename);
+        fs::write(&script_path, script_content)?;
+        
+        // Create command entry with script file reference
+        let command_with_file = GeneratedCommand {
+            name: command.name.clone(),
+            description: command.description.clone(),
+            script_file: script_filename.clone(),
+            permissions: command.permissions.clone(),
+        };
+
         let entry = CacheEntry {
-            command: command.clone(),
+            command: command_with_file,
             created_at: now,
             usage_count: 0,
             last_used: now,
@@ -166,7 +233,7 @@ impl CommandCache {
         self.write_cache.insert(name.to_string(), entry);
         self.persist_write_cache().await?;
         
-        info!("Stored command '{}' in write cache at {:?}", name, self.write_cache_dir);
+        info!("Stored command '{}' with script file '{}' in write cache at {:?}", name, script_filename, self.write_cache_dir);
         Ok(())
     }
 

@@ -1,4 +1,5 @@
 use crate::llm_generator::GeneratedCommand;
+use crate::command_cache::CommandCache;
 use anyhow::{anyhow, Result};
 use std::process::Command;
 use tracing::{info, warn, error};
@@ -43,12 +44,12 @@ impl Executor {
         Ok(())
     }
 
-    pub async fn execute_cached_command(&self, command: GeneratedCommand, args: &[String]) -> Result<()> {
+    pub async fn execute_cached_command(&self, command: GeneratedCommand, cache: &CommandCache, args: &[String]) -> Result<()> {
         info!("Executing cached command: {} - {}", command.name, command.description);
-        self.execute_generated_command(&command, args).await
+        self.execute_generated_command(&command, cache, args).await
     }
 
-    pub async fn execute_generated_command(&self, command: &GeneratedCommand, args: &[String]) -> Result<()> {
+    pub async fn execute_generated_command(&self, command: &GeneratedCommand, cache: &CommandCache, args: &[String]) -> Result<()> {
         info!("Executing generated command: {} - {}", command.name, command.description);
         println!("🤖 Executing generated command: {}", command.description);
 
@@ -57,7 +58,9 @@ impl Executor {
             println!("🔒 Deno permissions required: {}", command.permissions.join(" "));
         }
 
-        self.execute_deno_script(&command.script, &command.permissions, args).await
+        // Read script content from file
+        let script_content = cache.get_script_content(command)?;
+        self.execute_deno_script(&script_content, &command.permissions, args).await
     }
 
     async fn execute_deno_script(&self, script: &str, permissions: &[String], args: &[String]) -> Result<()> {

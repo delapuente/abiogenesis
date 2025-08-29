@@ -33,17 +33,17 @@ impl CommandRouter {
         // Check if command exists in our cache
         if let Some(cached_command) = self.cache.get_command(command_name).await? {
             info!("Command '{}' found in cache, executing", command_name);
-            return self.executor.execute_cached_command(cached_command, args).await;
+            return self.executor.execute_cached_command(cached_command, &self.cache, args).await;
         }
 
         // Generate new command using LLM
         warn!("Command '{}' not found, generating with AI", command_name);
-        let generated_command = self.generator.generate_command(command_name, args).await?;
+        let generation_result = self.generator.generate_command(command_name, args).await?;
         
-        // Cache the generated command
-        self.cache.store_command(command_name, &generated_command).await?;
+        // Cache the generated command and its script
+        self.cache.store_command(command_name, &generation_result.command, &generation_result.script_content).await?;
         
         // Execute the generated command
-        self.executor.execute_generated_command(&generated_command, args).await
+        self.executor.execute_generated_command(&generation_result.command, &self.cache, args).await
     }
 }

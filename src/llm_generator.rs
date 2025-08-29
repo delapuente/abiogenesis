@@ -6,17 +6,31 @@ use serde_json::json;
 use std::env;
 use tracing::{info, warn};
 
+#[derive(Debug, Deserialize)]
+struct ClaudeResponse {
+    name: String,
+    description: String,
+    script: String,
+    permissions: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeneratedCommand {
     pub name: String,
     pub description: String,
-    pub script: String,
+    pub script_file: String, // Path to the script file (relative to biomas directory)
     pub permissions: Vec<String>, // Deno permissions like --allow-read, --allow-net
+}
+
+#[derive(Debug)]
+pub struct GenerationResult {
+    pub command: GeneratedCommand,
+    pub script_content: String,
 }
 
 #[async_trait]
 pub trait CommandGenerator {
-    async fn generate_command(&self, command_name: &str, args: &[String]) -> Result<GeneratedCommand>;
+    async fn generate_command(&self, command_name: &str, args: &[String]) -> Result<GenerationResult>;
 }
 
 pub struct LlmGenerator {
@@ -33,7 +47,7 @@ impl LlmGenerator {
     }
 
 
-    async fn generate_command_impl(&self, command_name: &str, args: &[String]) -> Result<GeneratedCommand> {
+    async fn generate_command_impl(&self, command_name: &str, args: &[String]) -> Result<GenerationResult> {
         let config = crate::config::Config::load()?;
 
         // Check for mock mode
@@ -64,7 +78,7 @@ Get your API key from: https://console.anthropic.com"
         }
     }
 
-    async fn call_claude_api(&self, command_name: &str, args: &[String], api_key: &str) -> Result<GeneratedCommand> {
+    async fn call_claude_api(&self, command_name: &str, args: &[String], api_key: &str) -> Result<GenerationResult> {
         let prompt = format!(
             "CRITICAL: Your response must be EXACTLY a JSON object. No explanations, no code blocks, no other text.
 
@@ -124,11 +138,20 @@ RULES:
                 info!("Extracted content from Claude: {}", content);
                 
                 // Try to parse the generated JSON
-                if let Ok(generated_command) = serde_json::from_str::<GeneratedCommand>(content) {
+                if let Ok(claude_response) = serde_json::from_str::<ClaudeResponse>(content) {
                     info!("Successfully parsed Claude-generated command");
-                    return Ok(generated_command);
+                    let generation_result = GenerationResult {
+                        command: GeneratedCommand {
+                            name: claude_response.name,
+                            description: claude_response.description,
+                            script_file: format!("{}.ts", command_name),
+                            permissions: claude_response.permissions,
+                        },
+                        script_content: claude_response.script,
+                    };
+                    return Ok(generation_result);
                 } else {
-                    warn!("Failed to parse Claude response as GeneratedCommand: {}", content);
+                    warn!("Failed to parse Claude response as ClaudeResponse: {}", content);
                 }
             } else {
                 warn!("Failed to extract content from Claude response");
@@ -149,19 +172,19 @@ RULES:
 
 #[async_trait]
 impl CommandGenerator for LlmGenerator {
-    async fn generate_command(&self, command_name: &str, args: &[String]) -> Result<GeneratedCommand> {
+    async fn generate_command(&self, command_name: &str, args: &[String]) -> Result<GenerationResult> {
         info!("Generating command for: {} with args: {:?}", command_name, args);
 
         // In production: use real LLM API, in tests: use mock
-        let generated_command = self.generate_command_impl(command_name, args).await?;
+        let generation_result = self.generate_command_impl(command_name, args).await?;
 
-        Ok(generated_command)
+        Ok(generation_result)
     }
 }
 
 #[async_trait]
 impl CommandGenerator for MockGenerator {
-    async fn generate_command(&self, command_name: &str, args: &[String]) -> Result<GeneratedCommand> {
+    async fn generate_command(&self, command_name: &str, args: &[String]) -> Result<GenerationResult> {
         Ok(self.mock_generate_command(command_name, args))
     }
 }
@@ -171,7 +194,7 @@ impl MockGenerator {
         Self
     }
 
-    pub fn mock_generate_command(&self, command_name: &str, _args: &[String]) -> GeneratedCommand {
+    pub fn mock_generate_command(&self, command_name: &str, _args: &[String]) -> GenerationResult {
         // Mock implementation that generates Deno/TypeScript commands based on name patterns
         let (description, script, permissions) = match command_name {
             name if name.starts_with("git-") => {
@@ -241,11 +264,14 @@ impl MockGenerator {
             )
         };
 
-        GeneratedCommand {
-            name: command_name.to_string(),
-            description,
-            script,
-            permissions,
+        GenerationResult {
+            command: GeneratedCommand {
+                name: command_name.to_string(),
+                description,
+                script_file: format!("{}.ts", command_name),
+                permissions,
+            },
+            script_content: script,
         }
     }
 }
