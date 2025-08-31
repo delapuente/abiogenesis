@@ -66,7 +66,7 @@ impl LlmGenerator {
             info!("Using Claude API for command generation");
             self.call_claude_api(command_name, args, api_key).await
         } else {
-            return Err(anyhow!(
+            Err(anyhow!(
                 "No Anthropic API key found. Please set it using one of these methods:
                 
 1. Set API key in config:
@@ -79,7 +79,7 @@ impl LlmGenerator {
    ergo --config
    
 Get your API key from: https://console.anthropic.com"
-            ));
+            ))
         }
     }
 
@@ -232,7 +232,7 @@ impl LlmGenerator {
             info!("Using Claude API for conversational command generation");
             self.call_claude_api_for_description(description, api_key).await
         } else {
-            return Err(anyhow!(
+            Err(anyhow!(
                 "No Anthropic API key found for conversational mode. Please set it using one of these methods:\n\
                 \n\
 1. Set API key in config:\n\
@@ -245,7 +245,7 @@ impl LlmGenerator {
    ergo --config\n\
    \n\
 Get your API key from: https://console.anthropic.com"
-            ));
+            ))
         }
     }
 

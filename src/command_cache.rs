@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing::{info, debug};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,16 +106,13 @@ impl CommandCache {
                 };
                 
                 let cache_file = cache_dir.join("commands.json");
-                if cache_file.exists() {
-                    if let Ok(content) = fs::read_to_string(&cache_file) {
-                        if let Ok(cache) = serde_json::from_str::<HashMap<String, CacheEntry>>(&content) {
-                            if let Some(entry) = cache.get(name) {
+                if cache_file.exists()
+                    && let Ok(content) = fs::read_to_string(&cache_file)
+                        && let Ok(cache) = serde_json::from_str::<HashMap<String, CacheEntry>>(&content)
+                            && let Some(entry) = cache.get(name) {
                                 debug!("Found command '{}' in cache at {:?}", name, cache_dir);
                                 return Ok(Some(entry.command.clone()));
                             }
-                        }
-                    }
-                }
             }
             
             // Move to parent directory
@@ -136,16 +133,13 @@ impl CommandCache {
         };
         
         let cache_file = cache_dir.join("commands.json");
-        if cache_file.exists() {
-            if let Ok(content) = fs::read_to_string(&cache_file) {
-                if let Ok(cache) = serde_json::from_str::<HashMap<String, CacheEntry>>(&content) {
-                    if let Some(entry) = cache.get(name) {
+        if cache_file.exists()
+            && let Ok(content) = fs::read_to_string(&cache_file)
+                && let Ok(cache) = serde_json::from_str::<HashMap<String, CacheEntry>>(&content)
+                    && let Some(entry) = cache.get(name) {
                         debug!("Found command '{}' in home cache at {:?}", name, cache_dir);
                         return Ok(Some(entry.command.clone()));
                     }
-                }
-            }
-        }
         
         Ok(None)
     }

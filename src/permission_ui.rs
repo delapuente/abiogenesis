@@ -73,7 +73,7 @@ impl PermissionUI {
             println!();
             
             for (i, perm) in permissions.iter().enumerate() {
-                println!("   {}. {} {}", i + 1, "🛡️", perm.permission);
+                println!("   {}. 🛡️ {}", i + 1, perm.permission);
                 println!("      💡 Why: {}", perm.reason);
                 println!();
             }

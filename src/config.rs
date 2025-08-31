@@ -3,9 +3,10 @@ use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct Config {
     #[serde(default)]
     pub anthropic_api_key: Option<String>,
@@ -13,14 +14,6 @@ pub struct Config {
     pub use_mock: bool,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            anthropic_api_key: None,
-            use_mock: false,
-        }
-    }
-}
 
 impl Config {
     /// Load configuration from file, environment variables, or create default

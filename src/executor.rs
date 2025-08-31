@@ -1,8 +1,8 @@
-use crate::llm_generator::{GeneratedCommand, PermissionRequest};
+use crate::llm_generator::GeneratedCommand;
 use crate::command_cache::CommandCache;
 use anyhow::{anyhow, Result};
 use std::process::Command;
-use tracing::{info, warn, error};
+use tracing::{info, error};
 
 pub struct Executor;
 
