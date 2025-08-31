@@ -13,15 +13,17 @@ pub struct CommandRouter {
     generator: LlmGenerator,
     executor: Executor,
     permission_ui: PermissionUI,
+    verbose: bool,
 }
 
 impl CommandRouter {
-    pub async fn new() -> Result<Self> {
+    pub async fn new(verbose: bool) -> Result<Self> {
         Ok(Self {
             cache: CommandCache::new().await?,
             generator: LlmGenerator::new(),
-            executor: Executor::new(),
-            permission_ui: PermissionUI::new(),
+            executor: Executor::new(verbose),
+            permission_ui: PermissionUI::new(verbose),
+            verbose,
         })
     }
 
@@ -66,6 +68,9 @@ impl CommandRouter {
         }
 
         // Generate new command using LLM
+        if self.verbose {
+            println!("⚡ Command '{}' not found, generating with AI...", command_name);
+        }
         warn!("Command '{}' not found, generating with AI", command_name);
         let generation_result = self.generator.generate_command(command_name, args).await?;
         
@@ -93,13 +98,17 @@ impl CommandRouter {
 
     async fn process_conversational_intent(&mut self, description: &str) -> Result<()> {
         info!("Processing conversational intent: {}", description);
-        println!("💭 Understanding your request: {}", description);
+        if self.verbose {
+            println!("💭 Understanding your request: {}", description);
+        }
         
         // Generate command from natural language description
         let generation_result = self.generator.generate_command_from_description(description).await?;
         
-        println!("🎯 Generated command: {}", generation_result.command.name);
-        println!("📝 Description: {}", generation_result.command.description);
+        if self.verbose {
+            println!("🎯 Generated command: {}", generation_result.command.name);
+            println!("📝 Description: {}", generation_result.command.description);
+        }
         
         // Cache the generated command and its script
         self.cache.store_command(&generation_result.command.name, &generation_result.command, &generation_result.script_content).await?;

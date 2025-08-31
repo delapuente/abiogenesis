@@ -10,8 +10,6 @@ use tracing::info;
 pub struct Config {
     #[serde(default)]
     pub anthropic_api_key: Option<String>,
-    #[serde(default)]
-    pub use_mock: bool,
 }
 
 
@@ -28,9 +26,6 @@ impl Config {
             config.anthropic_api_key = Some(api_key);
         }
 
-        if std::env::var("ABIOGENESIS_USE_MOCK").is_ok() {
-            config.use_mock = true;
-        }
 
         Ok(config)
     }
@@ -84,9 +79,6 @@ impl Config {
         self.anthropic_api_key.as_ref()
     }
 
-    pub fn is_mock_mode(&self) -> bool {
-        self.use_mock
-    }
 
     pub fn show_config_info() -> Result<()> {
         let config_path = Self::get_config_path()?;
@@ -96,11 +88,12 @@ impl Config {
             println!("Status: Found");
             let config = Self::load_from_file()?;
             println!("API Key: {}", if config.anthropic_api_key.is_some() { "Set" } else { "Not set" });
-            println!("Mock mode: {}", config.use_mock);
         } else {
             println!("Status: Not found (using defaults)");
         }
 
+        println!("\nLog file: {}", Self::get_config_dir()?.join("ergo.log").display());
+        
         println!("\nTo set API key:");
         println!("  ergo --set-api-key <your-key>");
         println!("\nOr set environment variable:");

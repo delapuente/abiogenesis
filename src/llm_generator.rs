@@ -42,8 +42,6 @@ pub struct LlmGenerator {
     client: Client,
 }
 
-pub struct MockGenerator;
-
 impl LlmGenerator {
     pub fn new() -> Self {
         Self {
@@ -55,13 +53,7 @@ impl LlmGenerator {
     async fn generate_command_impl(&self, command_name: &str, args: &[String]) -> Result<GenerationResult> {
         let config = crate::config::Config::load()?;
 
-        // Check for mock mode
-        if config.is_mock_mode() {
-            info!("Using mock generator (ABIOGENESIS_USE_MOCK=1)");
-            return Ok(MockGenerator::new().mock_generate_command(command_name, args));
-        }
-
-        // Production mode: require API key
+        // Require API key
         if let Some(api_key) = config.get_api_key() {
             info!("Using Claude API for command generation");
             self.call_claude_api(command_name, args, api_key).await
@@ -221,13 +213,7 @@ impl LlmGenerator {
 
         let config = crate::config::Config::load()?;
 
-        // Check for mock mode
-        if config.is_mock_mode() {
-            info!("Using mock generator for conversational mode (ABIOGENESIS_USE_MOCK=1)");
-            return Ok(MockGenerator::new().mock_generate_from_description(description));
-        }
-
-        // Production mode: require API key
+        // Require API key
         if let Some(api_key) = config.get_api_key() {
             info!("Using Claude API for conversational command generation");
             self.call_claude_api_for_description(description, api_key).await
@@ -254,176 +240,4 @@ Get your API key from: https://console.anthropic.com"
         self.call_claude_api_with_prompt(&prompt, api_key).await
     }
 
-}
-
-#[async_trait]
-impl CommandGenerator for MockGenerator {
-    async fn generate_command(&self, command_name: &str, args: &[String]) -> Result<GenerationResult> {
-        Ok(self.mock_generate_command(command_name, args))
-    }
-}
-
-impl MockGenerator {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn mock_generate_command(&self, command_name: &str, _args: &[String]) -> GenerationResult {
-        // Mock implementation that generates Deno/TypeScript commands based on name patterns
-        let (description, script, permissions): (String, String, Vec<PermissionRequest>) = match command_name {
-            name if name.starts_with("git-") => {
-                let git_action = &name[4..];
-                (
-                    format!("Custom git command for {}", git_action),
-                    format!("const proc = new Deno.Command('git', {{ args: ['{}', ...Deno.args] }}); await proc.output();", git_action),
-                    vec![PermissionRequest {
-                        permission: "--allow-run=git".to_string(),
-                        reason: "Execute git commands to perform version control operations".to_string(),
-                    }],
-                )
-            }
-            "hello" => (
-                "Greet the user".to_string(),
-                "console.log(`Hello from ergo! Arguments: ${Deno.args.join(' ')}`);".to_string(),
-                vec![], // No permissions needed for simple console output
-            ),
-            "timestamp" => (
-                "Show current timestamp".to_string(),
-                "const now = new Date(); console.log(now.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0]);".to_string(),
-                vec![], // No permissions needed
-            ),
-            "project-info" => (
-                "Show project information".to_string(),
-                r#"
-                try {
-                    const cwd = Deno.cwd();
-                    const projectName = cwd.split('/').pop() || 'unknown';
-                    console.log(`Project: ${projectName}`);
-                    
-                    try {
-                        const git = new Deno.Command('git', { args: ['branch', '--show-current'] });
-                        const gitOutput = await git.output();
-                        const branch = new TextDecoder().decode(gitOutput.stdout).trim();
-                        console.log(`Git branch: ${branch || 'not a git repo'}`);
-                    } catch {
-                        console.log('Git branch: not a git repo');
-                    }
-                    
-                    let fileCount = 0;
-                    for await (const entry of Deno.readDir('.')) {
-                        if (entry.isFile) fileCount++;
-                    }
-                    console.log(`Files: ${fileCount}`);
-                } catch (error) {
-                    console.error('Error:', error.message);
-                }
-                "#.to_string(),
-                vec![
-                    PermissionRequest {
-                        permission: "--allow-read".to_string(),
-                        reason: "Read files in the current directory to count them".to_string(),
-                    },
-                    PermissionRequest {
-                        permission: "--allow-run=git".to_string(),
-                        reason: "Run git commands to determine the current branch".to_string(),
-                    },
-                ],
-            ),
-            "weather" => (
-                "Get current weather".to_string(),
-                r#"
-                const response = await fetch('https://wttr.in/?format=%l:+%c+%t');
-                const weather = await response.text();
-                console.log(`Weather: ${weather.trim()}`);
-                "#.to_string(),
-                vec![PermissionRequest {
-                    permission: "--allow-net=wttr.in".to_string(),
-                    reason: "Access weather data from the wttr.in service".to_string(),
-                }],
-            ),
-            "uuid" => (
-                "Generate a UUID".to_string(),
-                "console.log(crypto.randomUUID());".to_string(),
-                vec![], // No permissions needed for crypto API
-            ),
-            _ => (
-                format!("Generated command for {}", command_name),
-                format!("console.log('This is a generated command: {}');", command_name),
-                vec![],
-            )
-        };
-
-        GenerationResult {
-            command: GeneratedCommand {
-                name: command_name.to_string(),
-                description,
-                script_file: format!("{}.ts", command_name),
-                permissions,
-            },
-            script_content: script,
-        }
-    }
-
-    pub fn mock_generate_from_description(&self, description: &str) -> GenerationResult {
-        // Mock implementation for conversational mode - analyze description and suggest command
-        let (command_name, desc_text, script, permissions): (String, String, String, Vec<PermissionRequest>) = if description.contains("timestamp") || description.contains("time") {
-            (
-                "show-time".to_string(),
-                "Display current timestamp".to_string(),
-                "const now = new Date(); console.log(now.toISOString());".to_string(),
-                vec![],
-            )
-        } else if (description.contains("json") && description.contains("format")) || (description.contains("JSON") && description.contains("format")) {
-            (
-                "format-json".to_string(),
-                "Format JSON input with proper indentation".to_string(),
-                "try { const data = JSON.parse(Deno.args[0] || '{}'); console.log(JSON.stringify(data, null, 2)); } catch (err) { console.error('Invalid JSON:', err.message); }".to_string(),
-                vec![],
-            )
-        } else if description.contains("list") && description.contains("file") {
-            (
-                "list-files".to_string(),
-                "List files in current directory".to_string(),
-                "try { for await (const entry of Deno.readDir('.')) { console.log(entry.name); } } catch (err) { console.error(err); }".to_string(),
-                vec![PermissionRequest {
-                    permission: "--allow-read".to_string(),
-                    reason: "Read directory contents to list files".to_string(),
-                }],
-            )
-        } else if description.contains("random") || description.contains("uuid") || description.contains("UUID") {
-            (
-                "generate-id".to_string(),
-                "Generate a random UUID".to_string(),
-                "console.log(crypto.randomUUID());".to_string(),
-                vec![],
-            )
-        } else if description.contains("hello") || description.contains("greet") {
-            (
-                "greet-user".to_string(),
-                "Greet the user".to_string(),
-                "console.log('Hello! This command was generated from your description.');".to_string(),
-                vec![],
-            )
-        } else {
-            // Generic fallback based on description
-            let words: Vec<&str> = description.split_whitespace().take(3).collect();
-            let command_name = words.join("-").to_lowercase();
-            (
-                command_name.clone(),
-                format!("Generated command from: {}", description),
-                format!("console.log('Mock command for: {}');", description),
-                vec![],
-            )
-        };
-
-        GenerationResult {
-            command: GeneratedCommand {
-                name: command_name.clone(),
-                description: desc_text,
-                script_file: format!("{}.ts", command_name),
-                permissions,
-            },
-            script_content: script,
-        }
-    }
 }

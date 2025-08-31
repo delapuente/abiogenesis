@@ -85,19 +85,23 @@ export ANTHROPIC_API_KEY=sk-ant-your-key-here
 ergo --config
 ```
 
-### Mock Mode (for testing)
-
-```bash
-# Use mock generator instead of real API
-export ABIOGENESIS_USE_MOCK=1
-ergo some-command
-```
 
 ## 📁 File Structure
 
 - **Config**: `~/.abiogenesis/config.toml` - API key and settings
-- **Cache**: `~/.abiogenesis/cache/production/` - Generated commands
-- **Mock Cache**: `~/.abiogenesis/cache/mock/` - Mock mode commands
+- **Logs**: `~/.abiogenesis/ergo.log` - Operation logs and debugging info
+- **Cache**: `~/.abiogenesis/biomas/production/` - Generated commands
+
+## 🔍 Logging
+
+Ergo logs all operations to `~/.abiogenesis/ergo.log` for debugging and audit purposes:
+
+- **Default**: Info level logging (command executions, cache operations)
+- **Verbose mode (`-v`)**: Debug level logging (detailed generation steps)
+- **View logs**: `tail -f ~/.abiogenesis/ergo.log`
+- **Log location**: `ergo --config` shows the current log file path
+
+Logs include timestamps, operation details, and error information without cluttering stdout.
 
 ## 🛡️ Security
 
@@ -134,14 +138,16 @@ ergo project-info        # Show project details (git branch, file count, etc.)
 - **Executor**: Sandboxed execution of generated Deno/TypeScript code
 - **Config**: Configuration and API key management
 
-## 🧪 Testing
+## 🧪 Development
 
 ```bash
-# Run unit and integration tests
-cargo test
+# Build and run
+cargo build
+cargo run -- hello world
 
-# Test with mock mode (no API calls)
-ABIOGENESIS_USE_MOCK=1 cargo run -- test-command
+# Check code
+cargo check
+cargo clippy
 ```
 
 ## 🤝 Contributing

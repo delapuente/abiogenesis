@@ -1,5 +1,7 @@
 use clap::{Arg, Command};
 use tracing::info;
+use tracing_subscriber::{fmt, EnvFilter};
+use std::fs::OpenOptions;
 
 mod command_router;
 mod llm_generator;
@@ -10,9 +12,40 @@ mod permission_ui;
 
 use command_router::CommandRouter;
 
+fn setup_logging(verbose: bool) -> anyhow::Result<()> {
+    // Get log directory from config
+    let config_dir = config::Config::get_config_dir().unwrap_or_else(|_| {
+        dirs::home_dir().unwrap_or_default().join(".abiogenesis")
+    });
+    
+    // Create log directory if it doesn't exist
+    std::fs::create_dir_all(&config_dir)?;
+    
+    let log_file = config_dir.join("ergo.log");
+    
+    // Create or open log file
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file)?;
+    
+    // Set log level based on verbosity
+    let log_level = if verbose { "debug" } else { "info" };
+    
+    // Configure tracing to write to file
+    let subscriber = fmt::Subscriber::builder()
+        .with_env_filter(EnvFilter::from_default_env().add_directive(log_level.parse()?))
+        .with_writer(file)
+        .with_ansi(false) // No colors in log file
+        .finish();
+    
+    tracing::subscriber::set_global_default(subscriber)?;
+    
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
     
     let matches = Command::new("ergo")
         .about("AI-powered command interceptor - cogito, ergo sum")
@@ -46,7 +79,16 @@ async fn main() -> anyhow::Result<()> {
             .long("cache-stats")
             .help("Show cache statistics")
             .action(clap::ArgAction::SetTrue))
+        .arg(Arg::new("verbose")
+            .short('v')
+            .long("verbose")
+            .help("Enable verbose output")
+            .action(clap::ArgAction::SetTrue))
         .get_matches();
+    
+    // Setup logging early, but after parsing verbose flag
+    let verbose = matches.get_flag("verbose");
+    setup_logging(verbose)?;
     
     // Handle configuration commands
     if let Some(api_key) = matches.get_one::<String>("set-api-key") {
@@ -131,7 +173,7 @@ async fn main() -> anyhow::Result<()> {
     
     info!("Processing intent: {:?}", intent_args);
     
-    let mut router = CommandRouter::new().await?;
+    let mut router = CommandRouter::new(verbose).await?;
     router.process_intent(intent_args).await?;
     
     Ok(())

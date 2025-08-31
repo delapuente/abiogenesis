@@ -4,11 +4,13 @@ use anyhow::{anyhow, Result};
 use std::process::Command;
 use tracing::{info, error};
 
-pub struct Executor;
+pub struct Executor {
+    verbose: bool,
+}
 
 impl Executor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(verbose: bool) -> Self {
+        Self { verbose }
     }
 
     pub async fn execute_system_command(&self, args: &[String]) -> Result<()> {
@@ -51,14 +53,17 @@ impl Executor {
 
     pub async fn execute_generated_command(&self, command: &GeneratedCommand, cache: &CommandCache, args: &[String]) -> Result<()> {
         info!("Executing generated command: {} - {}", command.name, command.description);
-        println!("🤖 Executing generated command: {}", command.description);
+        
+        if self.verbose {
+            println!("🤖 Executing generated command: {}", command.description);
 
-        // Show permissions that will be requested
-        if !command.permissions.is_empty() {
-            let permission_strings: Vec<String> = command.permissions.iter()
-                .map(|p| p.permission.clone())
-                .collect();
-            println!("🔒 Deno permissions required: {}", permission_strings.join(" "));
+            // Show permissions that will be requested
+            if !command.permissions.is_empty() {
+                let permission_strings: Vec<String> = command.permissions.iter()
+                    .map(|p| p.permission.clone())
+                    .collect();
+                println!("🔒 Deno permissions required: {}", permission_strings.join(" "));
+            }
         }
 
         // Read script content from file

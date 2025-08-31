@@ -38,10 +38,9 @@ abiogenesis/
 
 ## Architecture
 
-**Command Generation Modes:**
-1. 🤖 **Claude AI** (`ANTHROPIC_API_KEY` set) - Uses Claude 3 Haiku for intelligent command generation
-2. 🔄 **Mock** (`ABIOGENESIS_USE_MOCK=1`) - Uses predefined responses for testing/development  
-3. 💡 **Fallback** (default) - Uses simple template-based generation
+**Command Generation:**
+- 🤖 **Claude AI** - Uses Claude 3 Haiku for intelligent command generation
+- Requires `ANTHROPIC_API_KEY` to be set
 
 The system follows this flow:
 ```
@@ -122,13 +121,11 @@ cp target/release/ergo ~/.local/bin/
 
 **Configuration:**
 - Config file: `~/.abiogenesis/config.toml`
+- Log file: `~/.abiogenesis/ergo.log`
 
 **Command Cache:**
-Generated commands are cached in separate directories based on mode:
-- **Production**: `~/.abiogenesis/biomas/production/commands.json`  
-- **Mock Mode**: `~/.abiogenesis/biomas/mock/commands.json`
-
-This ensures that test/development commands don't interfere with production commands.
+Generated commands are cached at:
+- `~/.abiogenesis/biomas/production/commands.json`
 
 ## Security Model
 
@@ -138,33 +135,16 @@ Generated commands run in Deno's sandbox with explicit permissions. Each command
 
 ### Environment Variables
 
-- **`ANTHROPIC_API_KEY`** - Anthropic API key for real LLM command generation
-  - If set: Uses Claude 3 Haiku to generate commands
-  - If not set: Uses simple fallback generation
+- **`ANTHROPIC_API_KEY`** - Anthropic API key for LLM command generation
+  - Required for operation
+  - Uses Claude 3 Haiku to generate commands
 
-- **`ABIOGENESIS_USE_MOCK`** - Enable deterministic mock mode
-  - If set: Uses predefined mock responses for consistent testing/development
-  - If not set: Uses production LLM/fallback generation
-  - Useful for: Testing, development, CI/CD pipelines
+### Usage
 
-### Generation Modes
-
-1. **Production Mode** (default)
-   ```bash
-   export ANTHROPIC_API_KEY="your-key"
-   cargo run -- hello world  # Uses Claude API
-   ```
-
-2. **Fallback Mode** (no API key)
-   ```bash
-   cargo run -- hello world  # Uses simple fallback generation
-   ```
-
-3. **Mock Mode** (deterministic)
-   ```bash
-   export ABIOGENESIS_USE_MOCK=1
-   cargo run -- hello world  # Uses predefined mock responses
-   ```
+```bash
+export ANTHROPIC_API_KEY="your-key"
+cargo run -- hello world  # Uses Claude API
+```
 
 ### Claude API Integration
 

@@ -4,11 +4,13 @@ use anyhow::Result;
 use std::io::{self, Write};
 use tracing::info;
 
-pub struct PermissionUI;
+pub struct PermissionUI {
+    verbose: bool,
+}
 
 impl PermissionUI {
-    pub fn new() -> Self {
-        Self
+    pub fn new(verbose: bool) -> Self {
+        Self { verbose }
     }
 
     pub fn prompt_for_consent(
@@ -114,10 +116,18 @@ impl PermissionUI {
     }
 
     pub fn show_running_with_permissions(&self, command_name: &str, permissions: &[PermissionRequest]) {
-        if permissions.is_empty() {
-            println!("▶️  Running '{}' (no special permissions needed)", command_name);
-        } else {
-            println!("▶️  Running '{}' with approved permissions:", command_name);
+        if self.verbose {
+            if permissions.is_empty() {
+                println!("▶️  Running '{}' (no special permissions needed)", command_name);
+            } else {
+                println!("▶️  Running '{}' with approved permissions:", command_name);
+                for perm in permissions {
+                    println!("   🛡️  {}", perm.permission);
+                }
+            }
+        } else if !permissions.is_empty() {
+            // Always show when permissions are involved for security
+            println!("▶️  Running '{}' with permissions:", command_name);
             for perm in permissions {
                 println!("   🛡️  {}", perm.permission);
             }
