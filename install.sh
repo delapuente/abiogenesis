@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Abiogenesis Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/user/abiogenesis/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/delapuente/abiogenesis/main/install.sh | bash
 
 set -e
 
