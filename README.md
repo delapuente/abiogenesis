@@ -22,28 +22,44 @@ Abiogenesis bridges intent (cogito) to execution (sum) by generating commands on
 
 ### Installation
 
-1. Clone and build:
+#### Quick Install (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/user/abiogenesis/main/install.sh | bash
+```
+
+This installer will:
+- Check system requirements (Rust, Deno, Git) 
+- Install Deno if not present
+- Build and install the `ergo` binary to `~/.local/bin`
+- Update your PATH if needed
+
+#### Manual Installation
+
 ```bash
 git clone <repository-url>
 cd abiogenesis
 cargo build --release
+cp target/release/ergo ~/.local/bin/
 ```
 
-2. Set up your API key:
+### Setup
+
+1. Set up your API key:
 ```bash
-./target/release/ergo --set-api-key sk-ant-your-key-here
+ergo --set-api-key sk-ant-your-key-here
 ```
 
-3. Start using it:
+2. Start using it:
 ```bash
 # Generate and run a command to count files
-./target/release/ergo file-count
+ergo hello world
 
-# Generate a random number
-./target/release/ergo random-number
+# Generate a timestamp
+ergo timestamp
 
-# Check current timestamp  
-./target/release/ergo current-time
+# Natural language description
+ergo "show me the weather"
 ```
 
 ## 🎯 How It Works

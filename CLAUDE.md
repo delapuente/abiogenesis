@@ -87,10 +87,36 @@ Commands are executed using **Deno** for security:
   - Caching behavior
   - Network and file system access
 
-## Prerequisites
+## Installation
 
-- **Rust** (2024 edition)
-- **Deno** - Required for executing generated commands
+### Quick Install (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/user/abiogenesis/main/install.sh | bash
+```
+
+This installer will:
+- Check system requirements (Rust, Deno, Git)
+- Install Deno if not present
+- Build and install the `ergo` binary to `~/.local/bin`
+- Update your PATH if needed
+
+### Manual Installation
+
+If you prefer to install manually:
+
+```bash
+git clone https://github.com/user/abiogenesis.git
+cd abiogenesis
+cargo build --release
+cp target/release/ergo ~/.local/bin/
+```
+
+### Prerequisites
+
+- **Rust** (2024 edition) - Install from https://rustup.rs/
+- **Deno** - Required for executing generated commands (auto-installed by installer)
+- **Git** - For cloning the repository
 
 ## Storage Locations
 
