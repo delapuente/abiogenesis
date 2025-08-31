@@ -1,4 +1,4 @@
-use crate::llm_generator::GeneratedCommand;
+use crate::llm_generator::{GeneratedCommand, PermissionRequest};
 use anyhow::Result;
 use dirs::home_dir;
 use serde::{Deserialize, Serialize};
@@ -8,12 +8,27 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{info, debug};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PermissionConsent {
+    AcceptOnce,      // Run once, ask again next time
+    AcceptForever,   // Always run with these permissions
+    Denied,          // User explicitly denied
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionDecision {
+    pub permissions: Vec<PermissionRequest>,
+    pub consent: PermissionConsent,
+    pub decided_at: u64,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct CacheEntry {
     command: GeneratedCommand,
     created_at: u64,
     usage_count: u32,
     last_used: u64,
+    permission_decision: Option<PermissionDecision>,
 }
 
 pub struct CommandCache {
@@ -228,6 +243,7 @@ impl CommandCache {
             created_at: now,
             usage_count: 0,
             last_used: now,
+            permission_decision: None,
         };
 
         self.write_cache.insert(name.to_string(), entry);
@@ -263,24 +279,82 @@ impl CommandCache {
         self.write_cache.keys().cloned().collect()
     }
 
-    #[allow(dead_code)]
+
+    pub async fn set_permission_decision(&mut self, name: &str, decision: PermissionDecision) -> Result<()> {
+        if let Some(entry) = self.write_cache.get_mut(name) {
+            entry.permission_decision = Some(decision);
+            self.persist_write_cache().await?;
+            info!("Updated permission decision for command '{}'", name);
+        }
+        Ok(())
+    }
+
+    pub fn get_permission_decision(&self, name: &str) -> Option<&PermissionDecision> {
+        self.write_cache.get(name)?.permission_decision.as_ref()
+    }
+
+    pub fn needs_permission_consent(&self, name: &str) -> bool {
+        match self.get_permission_decision(name) {
+            None => true, // Never asked
+            Some(decision) => match decision.consent {
+                PermissionConsent::AcceptOnce => true, // Ask again
+                PermissionConsent::AcceptForever => false, // Don't ask
+                PermissionConsent::Denied => true, // Ask again (user might change mind)
+            }
+        }
+    }
+
+    pub async fn remove_command(&mut self, name: &str) -> Result<bool> {
+        if let Some(entry) = self.write_cache.remove(name) {
+            // Remove script file
+            let script_path = self.write_cache_dir.join(&entry.command.script_file);
+            if script_path.exists() {
+                fs::remove_file(script_path)?;
+            }
+            self.persist_write_cache().await?;
+            info!("Removed command '{}' and its script file", name);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     pub async fn clear_cache(&mut self) -> Result<()> {
+        // Remove all script files
+        for entry in self.write_cache.values() {
+            let script_path = self.write_cache_dir.join(&entry.command.script_file);
+            if script_path.exists() {
+                fs::remove_file(script_path).ok(); // Ignore errors
+            }
+        }
+        
         self.write_cache.clear();
         self.persist_write_cache().await?;
         info!("Write cache cleared");
         Ok(())
     }
 
+    pub async fn list_commands(&self) -> Vec<(String, &GeneratedCommand, Option<&PermissionDecision>)> {
+        self.write_cache
+            .iter()
+            .map(|(name, entry)| (name.clone(), &entry.command, entry.permission_decision.as_ref()))
+            .collect()
+    }
+
     #[allow(dead_code)]
     pub async fn get_stats(&self) -> Result<String> {
         let total_commands = self.write_cache.len();
         let total_usage: u32 = self.write_cache.values().map(|e| e.usage_count).sum();
+        let accepted_forever = self.write_cache.values()
+            .filter(|e| matches!(e.permission_decision.as_ref().map(|d| &d.consent), Some(PermissionConsent::AcceptForever)))
+            .count();
         
         Ok(format!(
-            "Write Cache Stats:\n- Total commands: {}\n- Total usage: {}\n- Average usage: {:.2}\n- Cache directory: {:?}",
+            "Write Cache Stats:\n- Total commands: {}\n- Total usage: {}\n- Average usage: {:.2}\n- Accepted forever: {}\n- Cache directory: {:?}",
             total_commands,
             total_usage,
             if total_commands > 0 { total_usage as f64 / total_commands as f64 } else { 0.0 },
+            accepted_forever,
             self.write_cache_dir
         ))
     }

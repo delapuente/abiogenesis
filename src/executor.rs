@@ -1,4 +1,4 @@
-use crate::llm_generator::GeneratedCommand;
+use crate::llm_generator::{GeneratedCommand, PermissionRequest};
 use crate::command_cache::CommandCache;
 use anyhow::{anyhow, Result};
 use std::process::Command;
@@ -55,12 +55,18 @@ impl Executor {
 
         // Show permissions that will be requested
         if !command.permissions.is_empty() {
-            println!("🔒 Deno permissions required: {}", command.permissions.join(" "));
+            let permission_strings: Vec<String> = command.permissions.iter()
+                .map(|p| p.permission.clone())
+                .collect();
+            println!("🔒 Deno permissions required: {}", permission_strings.join(" "));
         }
 
         // Read script content from file
         let script_content = cache.get_script_content(command)?;
-        self.execute_deno_script(&script_content, &command.permissions, args).await
+        let permission_strings: Vec<String> = command.permissions.iter()
+            .map(|p| p.permission.clone())
+            .collect();
+        self.execute_deno_script(&script_content, &permission_strings, args).await
     }
 
     async fn execute_deno_script(&self, script: &str, permissions: &[String], args: &[String]) -> Result<()> {

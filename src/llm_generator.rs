@@ -10,7 +10,13 @@ struct ClaudeResponse {
     name: String,
     description: String,
     script: String,
-    permissions: Vec<String>,
+    permissions: Vec<PermissionRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionRequest {
+    pub permission: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,7 +24,7 @@ pub struct GeneratedCommand {
     pub name: String,
     pub description: String,
     pub script_file: String, // Path to the script file (relative to biomas directory)
-    pub permissions: Vec<String>, // Deno permissions like --allow-read, --allow-net
+    pub permissions: Vec<PermissionRequest>, // Deno permissions with explanations
 }
 
 #[derive(Debug)]
@@ -107,7 +113,12 @@ RESPOND WITH EXACTLY THIS FORMAT (with your values):
   \"name\": \"suggested-command-name\",
   \"description\": \"Brief description of what this command does\",
   \"script\": \"console.log('working code here');\",
-  \"permissions\": []
+  \"permissions\": [
+    {{
+      \"permission\": \"--allow-read\",
+      \"reason\": \"Read files from the current directory\"
+    }}
+  ]
 }}
 
 RULES:
@@ -116,7 +127,8 @@ RULES:
 - Use Deno APIs when needed
 - Arguments available as Deno.args if the command should accept them
 - Use MINIMAL permissions (empty [] preferred)
-- Valid permissions: --allow-read, --allow-write, --allow-net, --allow-env, --allow-run
+- Valid permission values: --allow-read, --allow-write, --allow-net, --allow-env, --allow-run
+- For each permission, provide a clear reason why it's needed in user-friendly language
 - Include try/catch for error handling
 - CRITICAL: RESPOND ONLY WITH THE JSON OBJECT ABOVE - NO OTHER TEXT",
             request_description
@@ -258,13 +270,16 @@ impl MockGenerator {
 
     pub fn mock_generate_command(&self, command_name: &str, _args: &[String]) -> GenerationResult {
         // Mock implementation that generates Deno/TypeScript commands based on name patterns
-        let (description, script, permissions) = match command_name {
+        let (description, script, permissions): (String, String, Vec<PermissionRequest>) = match command_name {
             name if name.starts_with("git-") => {
                 let git_action = &name[4..];
                 (
                     format!("Custom git command for {}", git_action),
                     format!("const proc = new Deno.Command('git', {{ args: ['{}', ...Deno.args] }}); await proc.output();", git_action),
-                    vec!["--allow-run=git".to_string()],
+                    vec![PermissionRequest {
+                        permission: "--allow-run=git".to_string(),
+                        reason: "Execute git commands to perform version control operations".to_string(),
+                    }],
                 )
             }
             "hello" => (
@@ -303,7 +318,16 @@ impl MockGenerator {
                     console.error('Error:', error.message);
                 }
                 "#.to_string(),
-                vec!["--allow-read".to_string(), "--allow-run=git".to_string()],
+                vec![
+                    PermissionRequest {
+                        permission: "--allow-read".to_string(),
+                        reason: "Read files in the current directory to count them".to_string(),
+                    },
+                    PermissionRequest {
+                        permission: "--allow-run=git".to_string(),
+                        reason: "Run git commands to determine the current branch".to_string(),
+                    },
+                ],
             ),
             "weather" => (
                 "Get current weather".to_string(),
@@ -312,7 +336,10 @@ impl MockGenerator {
                 const weather = await response.text();
                 console.log(`Weather: ${weather.trim()}`);
                 "#.to_string(),
-                vec!["--allow-net=wttr.in".to_string()],
+                vec![PermissionRequest {
+                    permission: "--allow-net=wttr.in".to_string(),
+                    reason: "Access weather data from the wttr.in service".to_string(),
+                }],
             ),
             "uuid" => (
                 "Generate a UUID".to_string(),
@@ -339,7 +366,7 @@ impl MockGenerator {
 
     pub fn mock_generate_from_description(&self, description: &str) -> GenerationResult {
         // Mock implementation for conversational mode - analyze description and suggest command
-        let (command_name, desc_text, script, permissions) = if description.contains("timestamp") || description.contains("time") {
+        let (command_name, desc_text, script, permissions): (String, String, String, Vec<PermissionRequest>) = if description.contains("timestamp") || description.contains("time") {
             (
                 "show-time".to_string(),
                 "Display current timestamp".to_string(),
@@ -358,7 +385,10 @@ impl MockGenerator {
                 "list-files".to_string(),
                 "List files in current directory".to_string(),
                 "try { for await (const entry of Deno.readDir('.')) { console.log(entry.name); } } catch (err) { console.error(err); }".to_string(),
-                vec!["--allow-read".to_string()],
+                vec![PermissionRequest {
+                    permission: "--allow-read".to_string(),
+                    reason: "Read directory contents to list files".to_string(),
+                }],
             )
         } else if description.contains("random") || description.contains("uuid") || description.contains("UUID") {
             (
