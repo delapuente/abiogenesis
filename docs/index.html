@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abiogenesis - AI-Powered Command Interceptor</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Hero Section -->
+        <header class="hero">
+            <div class="hero-content">
+                <h1 class="hero-title">
+                    <span class="gradient-text">Abiogenesis</span>
+                    <span class="subtitle">ergo</span>
+                </h1>
+                <p class="hero-description">
+                    AI-powered command interceptor that creates commands from nothing.<br>
+                    <em>cogito, ergo sum</em> - I think, therefore commands exist.
+                </p>
+                <div class="cta-buttons">
+                    <a href="#install" class="btn btn-primary">Get Started</a>
+                    <a href="https://github.com/delapuente/abiogenesis" class="btn btn-secondary" target="_blank">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        </svg>
+                        GitHub
+                    </a>
+                </div>
+            </div>
+            <div class="hero-demo">
+                <div class="terminal">
+                    <div class="terminal-header">
+                        <div class="terminal-buttons">
+                            <div class="btn-close"></div>
+                            <div class="btn-minimize"></div>
+                            <div class="btn-maximize"></div>
+                        </div>
+                        <div class="terminal-title">Terminal</div>
+                    </div>
+                    <div class="terminal-body">
+                        <div class="terminal-line">
+                            <span class="prompt">$ </span>
+                            <span class="command">ergo timestamp</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="permission-text">🔐 Command 'timestamp' not found, generating with AI...</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="weather-output">2025-08-31T15:42:30Z</span>
+                        </div>
+                        <div class="terminal-line">
+                            <span class="prompt">$ </span>
+                            <span class="cursor">_</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Features Section -->
+        <section class="features">
+            <div class="section-header">
+                <h2>How it Works</h2>
+                <p>Bridges intent to execution through AI-powered command generation</p>
+            </div>
+            
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🔍</div>
+                    <h3>Intercept</h3>
+                    <p>Catches commands that don't exist in your system PATH</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🤖</div>
+                    <h3>Generate</h3>
+                    <p>Uses Claude AI to create working Deno/TypeScript commands</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>Secure</h3>
+                    <p>Runs in Deno's sandbox with explicit permission management</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">💾</div>
+                    <h3>Cache</h3>
+                    <p>Stores generated commands for instant reuse</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Installation Section -->
+        <section id="install" class="installation">
+            <div class="section-header">
+                <h2>Installation</h2>
+                <p>Get up and running in seconds</p>
+            </div>
+            
+            <div class="install-methods">
+                <div class="install-card primary">
+                    <h3>Quick Install</h3>
+                    <div class="code-block">
+                        <pre><code>curl -fsSL https://raw.githubusercontent.com/delapuente/abiogenesis/main/install.sh | bash</code></pre>
+                        <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                    </div>
+                    <p class="install-note">Installs Deno if needed, builds from source, and sets up PATH</p>
+                </div>
+                
+                <div class="install-card">
+                    <h3>Manual Install</h3>
+                    <div class="code-block">
+                        <pre><code>git clone https://github.com/delapuente/abiogenesis.git
+cd abiogenesis
+cargo build --release
+cp target/release/ergo ~/.local/bin/</code></pre>
+                        <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="setup-section">
+                <h3>Setup API Key</h3>
+                <div class="code-block">
+                    <pre><code>ergo --set-api-key sk-ant-your-key-here</code></pre>
+                    <button class="copy-btn" onclick="copyToClipboard(this)">Copy</button>
+                </div>
+                <p class="api-note">Get your API key from <a href="https://console.anthropic.com" target="_blank">Anthropic Console</a></p>
+            </div>
+        </section>
+
+        <!-- Examples Section -->
+        <section class="examples">
+            <div class="section-header">
+                <h2>Examples</h2>
+                <p>See what ergo can generate for you</p>
+            </div>
+            
+            <div class="examples-grid">
+                <div class="example-card">
+                    <div class="example-header">
+                        <h4>Utilities</h4>
+                    </div>
+                    <div class="code-block">
+                        <pre><code>ergo timestamp
+ergo uuid
+ergo random-password
+ergo project-info</code></pre>
+                    </div>
+                </div>
+                
+                <div class="example-card">
+                    <div class="example-header">
+                        <h4>Natural Language</h4>
+                    </div>
+                    <div class="code-block">
+                        <pre><code>ergo "calculate md5 of file"
+ergo "generate a password"
+ergo "list all files here"
+ergo "create a backup"</code></pre>
+                    </div>
+                </div>
+                
+                <div class="example-card">
+                    <div class="example-header">
+                        <h4>Development</h4>
+                    </div>
+                    <div class="code-block">
+                        <pre><code>ergo "start a local server"
+ergo "format this json file"
+ergo "find todos in code"
+ergo "git status summary"</code></pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Security Section -->
+        <section class="security">
+            <div class="section-header">
+                <h2>Security First</h2>
+                <p>Every generated command runs in a secure sandbox</p>
+            </div>
+            
+            <div class="security-features">
+                <div class="security-card">
+                    <div class="security-icon">🔐</div>
+                    <h3>Permission Control</h3>
+                    <p>Explicit approval for file access, network, and system commands</p>
+                </div>
+                
+                <div class="security-card">
+                    <div class="security-icon">🏖️</div>
+                    <h3>Deno Sandbox</h3>
+                    <p>All code runs in Deno's secure runtime with minimal permissions</p>
+                </div>
+                
+                <div class="security-card">
+                    <div class="security-icon">👁️</div>
+                    <h3>Full Visibility</h3>
+                    <p>See exactly what each command does before running it</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>Abiogenesis</h3>
+                    <p>Creating commands from nothing through the power of AI</p>
+                </div>
+                
+                <div class="footer-section">
+                    <h4>Links</h4>
+                    <ul>
+                        <li><a href="https://github.com/delapuente/abiogenesis" target="_blank">GitHub</a></li>
+                        <li><a href="https://console.anthropic.com" target="_blank">Get API Key</a></li>
+                        <li><a href="https://deno.land/" target="_blank">Deno</a></li>
+                    </ul>
+                </div>
+                
+                <div class="footer-section">
+                    <h4>Author</h4>
+                    <p>Created by <strong>Salva de la Puente</strong></p>
+                    <p><a href="mailto:hola@salvadelapuente.com">hola@salvadelapuente.com</a></p>
+                </div>
+                
+                <div class="footer-section">
+                    <h4>Philosophy</h4>
+                    <p><em>"Abiogenesis is the process by which life arises from non-living matter. This tool creates functional commands from nothing but natural language."</em></p>
+                </div>
+            </div>
+            
+            <div class="footer-bottom">
+                <p>&copy; 2025 Abiogenesis by <a href="mailto:hola@salvadelapuente.com">Salva de la Puente</a>. Made with ❤️ and AI.</p>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        function copyToClipboard(button) {
+            const codeBlock = button.previousElementSibling;
+            const text = codeBlock.textContent;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                const original = button.textContent;
+                button.textContent = 'Copied!';
+                button.classList.add('copied');
+                
+                setTimeout(() => {
+                    button.textContent = original;
+                    button.classList.remove('copied');
+                }, 2000);
+            });
+        }
+        
+        // Terminal cursor animation
+        setInterval(() => {
+            const cursor = document.querySelector('.cursor');
+            cursor.style.opacity = cursor.style.opacity === '0' ? '1' : '0';
+        }, 800);
+    </script>
+</body>
+</html>
