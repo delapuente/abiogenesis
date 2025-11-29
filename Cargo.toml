@@ -3,6 +3,10 @@ name = "abiogenesis"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "abiogenesis"
+path = "src/lib.rs"
+
 [[bin]]
 name = "ergo"
 path = "src/main.rs"
