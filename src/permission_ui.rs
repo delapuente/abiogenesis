@@ -47,10 +47,7 @@ impl PermissionUI {
     ///
     /// * `verbose` - If true, shows additional output messages
     pub fn new(verbose: bool) -> Self {
-        Self {
-            verbose,
-            time_provider: Box::new(SystemTimeProvider),
-        }
+        Self::with_time_provider(verbose, Box::new(SystemTimeProvider))
     }
 
     /// Creates a `PermissionUI` with a custom time provider (for testing).
@@ -264,11 +261,12 @@ impl PermissionUI {
         permissions: Vec<PermissionRequest>,
         consent: PermissionConsent,
     ) -> PermissionDecision {
-        PermissionDecision {
+        Self::create_permission_decision_with_timestamp(
+            self,
             permissions,
             consent,
-            decided_at: self.time_provider.now(),
-        }
+            self.time_provider.now(),
+        )
     }
 
     /// Creates a permission decision with a specific timestamp.

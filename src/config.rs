@@ -29,13 +29,16 @@ impl ConfigPathProvider for HomePathProvider {
     }
 }
 
-/// Application configuration for ergo.
+/// Application configuration data for ergo.
 ///
-/// Configuration is loaded from `{base_dir}/config.toml` with environment
-/// variables taking precedence. The struct is serializable to TOML format.
+/// This is a simple data struct that holds configuration values. It is
+/// serializable to TOML format and can be cloned and compared.
+///
+/// For loading, saving, and managing configuration, use [`ConfigLoader`].
 ///
 /// # Configuration Precedence
 ///
+/// When loaded via [`ConfigLoader`]:
 /// 1. Environment variables (highest priority)
 /// 2. Config file (e.g., `~/.abiogenesis/config.toml`)
 /// 3. Default values (lowest priority)
@@ -62,29 +65,63 @@ pub struct Config {
     pub anthropic_api_key: Option<String>,
 }
 
+/// Handles loading, saving, and managing configuration files.
+///
+/// Uses constructor injection for the path provider, enabling testability
+/// with mock directories.
+///
+/// # Example
+///
+/// ```no_run
+/// use abiogenesis::config::{ConfigLoader, HomePathProvider};
+///
+/// // Production usage with default provider
+/// let loader = ConfigLoader::new();
+/// let config = loader.load()?;
+///
+/// // Or with a custom provider for testing
+/// let loader = ConfigLoader::with_provider(Box::new(HomePathProvider));
+/// # Ok::<(), anyhow::Error>(())
+/// ```
+pub struct ConfigLoader {
+    path_provider: Box<dyn ConfigPathProvider>,
+}
 
-impl Config {
-    // =========================================================================
-    // Core methods with dependency injection (testable)
-    // =========================================================================
+impl Default for ConfigLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    /// Loads configuration from a file using the provided path provider.
+impl ConfigLoader {
+    /// Creates a new ConfigLoader with the default [`HomePathProvider`].
+    pub fn new() -> Self {
+        Self {
+            path_provider: Box::new(HomePathProvider),
+        }
+    }
+
+    /// Creates a new ConfigLoader with a custom path provider.
     ///
-    /// This method does NOT apply environment variable overrides. Use
-    /// [`load_with_provider`] for the full loading behavior.
+    /// This is primarily useful for testing with temporary directories.
     ///
     /// # Arguments
     ///
-    /// * `provider` - The path provider that determines where to look for config
+    /// * `path_provider` - The provider that determines where config files are stored
+    pub fn with_provider(path_provider: Box<dyn ConfigPathProvider>) -> Self {
+        Self { path_provider }
+    }
+
+    /// Loads configuration from the config file only (no env var overrides).
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The path provider fails to return a base directory
-    /// - The config file exists but cannot be read
+    /// - The config file doesn't exist
+    /// - The config file cannot be read
     /// - The config file contains invalid TOML
-    pub fn load_from_file_with_provider(provider: &dyn ConfigPathProvider) -> Result<Self> {
-        let config_path = Self::get_config_path_with_provider(provider)?;
+    pub fn load_from_file(&self) -> Result<Config> {
+        let config_path = self.get_config_path()?;
         if config_path.exists() {
             let content = fs::read_to_string(&config_path)?;
             let config: Config = toml::from_str(&content)?;
@@ -95,7 +132,7 @@ impl Config {
         }
     }
 
-    /// Loads configuration with full precedence rules using the provided path provider.
+    /// Loads configuration with full precedence rules.
     ///
     /// # Configuration Precedence
     ///
@@ -103,18 +140,14 @@ impl Config {
     /// 2. Config file
     /// 3. Default values (lowest priority)
     ///
-    /// # Arguments
-    ///
-    /// * `provider` - The path provider that determines where to look for config
-    ///
     /// # Errors
     ///
     /// Returns an error only if the path provider fails. Missing config files
     /// are handled gracefully by using defaults.
-    pub fn load_with_provider(provider: &dyn ConfigPathProvider) -> Result<Self> {
-        let mut config = Self::load_from_file_with_provider(provider).unwrap_or_else(|_| {
+    pub fn load(&self) -> Result<Config> {
+        let mut config = self.load_from_file().unwrap_or_else(|_| {
             info!("No config file found, using defaults");
-            Self::default()
+            Config::default()
         });
 
         // Environment variables override config file
@@ -125,85 +158,123 @@ impl Config {
         Ok(config)
     }
 
-    /// Saves the configuration to disk using the provided path provider.
+    /// Saves the configuration to disk.
     ///
     /// Creates the parent directory if it doesn't exist.
     ///
     /// # Arguments
     ///
-    /// * `provider` - The path provider that determines where to save config
+    /// * `config` - The configuration to save
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The path provider fails to return a base directory
     /// - The parent directory cannot be created
     /// - The file cannot be written
-    pub fn save_with_provider(&self, provider: &dyn ConfigPathProvider) -> Result<()> {
-        let config_path = Self::get_config_path_with_provider(provider)?;
+    pub fn save(&self, config: &Config) -> Result<()> {
+        let config_path = self.get_config_path()?;
 
         // Create parent directory if it doesn't exist
         if let Some(parent) = config_path.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        let content = toml::to_string_pretty(self)?;
+        let content = toml::to_string_pretty(config)?;
         fs::write(&config_path, content)?;
         info!("Saved config to: {}", config_path.display());
         Ok(())
     }
 
-    /// Returns the full path to the config file using the provided path provider.
-    ///
-    /// # Arguments
-    ///
-    /// * `provider` - The path provider that determines the base directory
-    ///
-    /// # Returns
-    ///
-    /// The path `{base_dir}/config.toml`
-    pub fn get_config_path_with_provider(provider: &dyn ConfigPathProvider) -> Result<PathBuf> {
-        Ok(provider.get_base_dir()?.join("config.toml"))
+    /// Returns the full path to the config file.
+    pub fn get_config_path(&self) -> Result<PathBuf> {
+        Ok(self.path_provider.get_base_dir()?.join("config.toml"))
     }
 
-    /// Returns the configuration directory using the provided path provider.
-    ///
-    /// # Arguments
-    ///
-    /// * `provider` - The path provider that determines the base directory
-    pub fn get_config_dir_with_provider(provider: &dyn ConfigPathProvider) -> Result<PathBuf> {
-        provider.get_base_dir()
+    /// Returns the configuration directory path.
+    pub fn get_config_dir(&self) -> Result<PathBuf> {
+        self.path_provider.get_base_dir()
     }
 
-    /// Sets the API key and saves the configuration using the provided path provider.
+    /// Sets the API key and saves the configuration.
     ///
     /// # Arguments
     ///
+    /// * `config` - The configuration to update
     /// * `api_key` - The Anthropic API key to store
-    /// * `provider` - The path provider that determines where to save config
     ///
     /// # Errors
     ///
     /// Returns an error if saving fails.
-    pub fn set_api_key_with_provider(
-        &mut self,
-        api_key: String,
-        provider: &dyn ConfigPathProvider,
-    ) -> Result<()> {
-        self.anthropic_api_key = Some(api_key);
-        self.save_with_provider(provider)?;
+    pub fn set_api_key(&self, config: &mut Config, api_key: String) -> Result<()> {
+        config.anthropic_api_key = Some(api_key);
+        self.save(config)?;
         info!("API key saved to config file");
         Ok(())
     }
 
+    /// Displays configuration information to stdout.
+    ///
+    /// This is a convenience wrapper around [`show_config_info_with_io`].
+    pub fn show_config_info(&self) -> Result<()> {
+        self.show_config_info_with_io(&mut std::io::stdout())
+    }
+
+    /// Displays configuration information to the provided writer.
+    ///
+    /// Shows:
+    /// - Config file path and status
+    /// - Whether API key is set
+    /// - Log file location
+    /// - Instructions for setting the API key
+    ///
+    /// # Arguments
+    ///
+    /// * `output` - Writer to output configuration information to
+    pub fn show_config_info_with_io<W: std::io::Write>(&self, output: &mut W) -> Result<()> {
+        let config_path = self.get_config_path()?;
+        writeln!(output, "Configuration file: {}", config_path.display())?;
+
+        if config_path.exists() {
+            writeln!(output, "Status: Found")?;
+            let config = self.load_from_file()?;
+            writeln!(
+                output,
+                "API Key: {}",
+                if config.anthropic_api_key.is_some() {
+                    "Set"
+                } else {
+                    "Not set"
+                }
+            )?;
+        } else {
+            writeln!(output, "Status: Not found (using defaults)")?;
+        }
+
+        writeln!(
+            output,
+            "\nLog file: {}",
+            self.get_config_dir()?.join("ergo.log").display()
+        )?;
+
+        writeln!(output, "\nTo set API key:")?;
+        writeln!(output, "  ergo --set-api-key <your-key>")?;
+        writeln!(output, "\nOr set environment variable:")?;
+        writeln!(output, "  export ANTHROPIC_API_KEY=<your-key>")?;
+
+        Ok(())
+    }
+}
+
+
+impl Config {
     // =========================================================================
-    // Convenience methods using default HomePathProvider
+    // Convenience methods using default ConfigLoader
     // =========================================================================
 
     /// Loads configuration from `~/.abiogenesis/config.toml` with env var overrides.
     ///
-    /// This is a convenience wrapper around [`load_with_provider`] using
-    /// [`HomePathProvider`].
+    /// This is a convenience wrapper that creates a default [`ConfigLoader`]
+    /// and calls [`ConfigLoader::load`].
     ///
     /// # Configuration Precedence
     ///
@@ -215,31 +286,31 @@ impl Config {
     ///
     /// Returns an error only if the home directory cannot be determined.
     pub fn load() -> Result<Self> {
-        Self::load_with_provider(&HomePathProvider)
+        ConfigLoader::new().load()
     }
 
     /// Saves the configuration to `~/.abiogenesis/config.toml`.
     ///
-    /// This is a convenience wrapper around [`save_with_provider`] using
-    /// [`HomePathProvider`].
+    /// This is a convenience wrapper that creates a default [`ConfigLoader`]
+    /// and calls [`ConfigLoader::save`].
     pub fn save(&self) -> Result<()> {
-        self.save_with_provider(&HomePathProvider)
+        ConfigLoader::new().save(self)
     }
 
     /// Returns the configuration directory path (`~/.abiogenesis`).
     ///
-    /// This is a convenience wrapper around [`get_config_dir_with_provider`]
-    /// using [`HomePathProvider`].
+    /// This is a convenience wrapper that creates a default [`ConfigLoader`]
+    /// and calls [`ConfigLoader::get_config_dir`].
     pub fn get_config_dir() -> Result<PathBuf> {
-        Self::get_config_dir_with_provider(&HomePathProvider)
+        ConfigLoader::new().get_config_dir()
     }
 
     /// Sets the API key and saves to `~/.abiogenesis/config.toml`.
     ///
-    /// This is a convenience wrapper around [`set_api_key_with_provider`]
-    /// using [`HomePathProvider`].
+    /// This is a convenience wrapper that creates a default [`ConfigLoader`]
+    /// and calls [`ConfigLoader::set_api_key`].
     pub fn set_api_key(&mut self, api_key: String) -> Result<()> {
-        self.set_api_key_with_provider(api_key, &HomePathProvider)
+        ConfigLoader::new().set_api_key(self, api_key)
     }
 
     /// Returns the API key if configured.
@@ -258,42 +329,7 @@ impl Config {
     /// - Log file location
     /// - Instructions for setting the API key
     pub fn show_config_info() -> Result<()> {
-        Self::show_config_info_with_provider(&HomePathProvider)
-    }
-
-    /// Displays configuration information using the provided path provider.
-    pub fn show_config_info_with_provider(provider: &dyn ConfigPathProvider) -> Result<()> {
-        let config_path = Self::get_config_path_with_provider(provider)?;
-        println!("Configuration file: {}", config_path.display());
-
-        if config_path.exists() {
-            println!("Status: Found");
-            let config = Self::load_from_file_with_provider(provider)?;
-            println!(
-                "API Key: {}",
-                if config.anthropic_api_key.is_some() {
-                    "Set"
-                } else {
-                    "Not set"
-                }
-            );
-        } else {
-            println!("Status: Not found (using defaults)");
-        }
-
-        println!(
-            "\nLog file: {}",
-            Self::get_config_dir_with_provider(provider)?
-                .join("ergo.log")
-                .display()
-        );
-
-        println!("\nTo set API key:");
-        println!("  ergo --set-api-key <your-key>");
-        println!("\nOr set environment variable:");
-        println!("  export ANTHROPIC_API_KEY=<your-key>");
-
-        Ok(())
+        ConfigLoader::new().show_config_info()
     }
 }
 
@@ -394,19 +430,19 @@ mod tests {
     }
 
     // =========================================================================
-    // Filesystem tests (using temp directories)
+    // ConfigLoader tests (using temp directories)
     // =========================================================================
 
     #[test]
-    fn test_save_creates_config_file() {
+    fn test_config_loader_save_creates_config_file() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = TempPathProvider::new(&temp_dir);
+        let loader = ConfigLoader::with_provider(Box::new(TempPathProvider::new(&temp_dir)));
 
         let config = Config {
             anthropic_api_key: Some("save-test-key".to_string()),
         };
 
-        config.save_with_provider(&provider).unwrap();
+        loader.save(&config).unwrap();
 
         let config_path = temp_dir.path().join("config.toml");
         assert!(config_path.exists());
@@ -416,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn test_save_creates_parent_directory() {
+    fn test_config_loader_save_creates_parent_directory() {
         let temp_dir = TempDir::new().unwrap();
         // Use a nested path that doesn't exist yet
         let nested_path = temp_dir.path().join("nested").join("config");
@@ -430,40 +466,42 @@ mod tests {
             }
         }
 
-        let provider = NestedProvider { path: nested_path.clone() };
+        let loader = ConfigLoader::with_provider(Box::new(NestedProvider {
+            path: nested_path.clone(),
+        }));
         let config = Config::default();
 
-        config.save_with_provider(&provider).unwrap();
+        loader.save(&config).unwrap();
 
         assert!(nested_path.join("config.toml").exists());
     }
 
     #[test]
-    fn test_load_from_file_reads_existing_config() {
+    fn test_config_loader_load_from_file_reads_existing_config() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = TempPathProvider::new(&temp_dir);
+        let loader = ConfigLoader::with_provider(Box::new(TempPathProvider::new(&temp_dir)));
 
         // Manually write a config file
         let config_path = temp_dir.path().join("config.toml");
         fs::write(&config_path, r#"anthropic_api_key = "loaded-key""#).unwrap();
 
-        let config = Config::load_from_file_with_provider(&provider).unwrap();
+        let config = loader.load_from_file().unwrap();
         assert_eq!(config.anthropic_api_key, Some("loaded-key".to_string()));
     }
 
     #[test]
-    fn test_load_from_file_returns_error_when_missing() {
+    fn test_config_loader_load_from_file_returns_error_when_missing() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = TempPathProvider::new(&temp_dir);
+        let loader = ConfigLoader::with_provider(Box::new(TempPathProvider::new(&temp_dir)));
 
-        let result = Config::load_from_file_with_provider(&provider);
+        let result = loader.load_from_file();
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_load_with_provider_uses_defaults_when_file_missing() {
+    fn test_config_loader_load_uses_defaults_when_file_missing() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = TempPathProvider::new(&temp_dir);
+        let loader = ConfigLoader::with_provider(Box::new(TempPathProvider::new(&temp_dir)));
 
         // Ensure no env var interference
         let _guard = ENV_MUTEX.lock().unwrap();
@@ -472,14 +510,14 @@ mod tests {
             std::env::remove_var("ANTHROPIC_API_KEY");
         }
 
-        let config = Config::load_with_provider(&provider).unwrap();
+        let config = loader.load().unwrap();
         assert!(config.anthropic_api_key.is_none());
     }
 
     #[test]
-    fn test_load_with_provider_env_var_overrides_file() {
+    fn test_config_loader_load_env_var_overrides_file() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = TempPathProvider::new(&temp_dir);
+        let loader = ConfigLoader::with_provider(Box::new(TempPathProvider::new(&temp_dir)));
 
         // Write config file with one key
         let config_path = temp_dir.path().join("config.toml");
@@ -492,7 +530,7 @@ mod tests {
             std::env::set_var("ANTHROPIC_API_KEY", "env-key");
         }
 
-        let config = Config::load_with_provider(&provider).unwrap();
+        let config = loader.load().unwrap();
 
         // Clean up env var
         // SAFETY: We hold a mutex to ensure no other test is accessing env vars concurrently
@@ -505,39 +543,98 @@ mod tests {
     }
 
     #[test]
-    fn test_set_api_key_with_provider_saves_to_file() {
+    fn test_config_loader_set_api_key_saves_to_file() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = TempPathProvider::new(&temp_dir);
+        let loader = ConfigLoader::with_provider(Box::new(TempPathProvider::new(&temp_dir)));
 
         let mut config = Config::default();
-        config
-            .set_api_key_with_provider("new-api-key".to_string(), &provider)
-            .unwrap();
+        loader.set_api_key(&mut config, "new-api-key".to_string()).unwrap();
 
         // Verify in-memory state
         assert_eq!(config.anthropic_api_key, Some("new-api-key".to_string()));
 
         // Verify persisted state
-        let loaded = Config::load_from_file_with_provider(&provider).unwrap();
+        let loaded = loader.load_from_file().unwrap();
         assert_eq!(loaded.anthropic_api_key, Some("new-api-key".to_string()));
     }
 
     #[test]
-    fn test_get_config_path_with_provider() {
+    fn test_config_loader_get_config_path() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = TempPathProvider::new(&temp_dir);
+        let loader = ConfigLoader::with_provider(Box::new(TempPathProvider::new(&temp_dir)));
 
-        let path = Config::get_config_path_with_provider(&provider).unwrap();
+        let path = loader.get_config_path().unwrap();
         assert_eq!(path, temp_dir.path().join("config.toml"));
     }
 
     #[test]
-    fn test_get_config_dir_with_provider() {
+    fn test_config_loader_get_config_dir() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = TempPathProvider::new(&temp_dir);
+        let loader = ConfigLoader::with_provider(Box::new(TempPathProvider::new(&temp_dir)));
 
-        let dir = Config::get_config_dir_with_provider(&provider).unwrap();
+        let dir = loader.get_config_dir().unwrap();
         assert_eq!(dir, temp_dir.path());
+    }
+
+    #[test]
+    fn test_config_loader_default() {
+        let loader = ConfigLoader::default();
+        // Just verify it doesn't panic and returns a valid path
+        let dir = loader.get_config_dir().unwrap();
+        assert!(dir.ends_with(".abiogenesis"));
+    }
+
+    // =========================================================================
+    // show_config_info_with_io tests
+    // =========================================================================
+
+    #[test]
+    fn test_show_config_info_when_config_file_missing() {
+        let temp_dir = TempDir::new().unwrap();
+        let loader = ConfigLoader::with_provider(Box::new(TempPathProvider::new(&temp_dir)));
+        let mut output = Vec::new();
+
+        loader.show_config_info_with_io(&mut output).unwrap();
+
+        let output_str = String::from_utf8_lossy(&output);
+        assert!(output_str.contains("Configuration file:"));
+        assert!(output_str.contains("Status: Not found (using defaults)"));
+        assert!(output_str.contains("Log file:"));
+        assert!(output_str.contains("ergo --set-api-key"));
+    }
+
+    #[test]
+    fn test_show_config_info_when_config_file_exists_with_api_key() {
+        let temp_dir = TempDir::new().unwrap();
+        let loader = ConfigLoader::with_provider(Box::new(TempPathProvider::new(&temp_dir)));
+
+        // Create config file with API key
+        let config_path = temp_dir.path().join("config.toml");
+        fs::write(&config_path, r#"anthropic_api_key = "test-key""#).unwrap();
+
+        let mut output = Vec::new();
+        loader.show_config_info_with_io(&mut output).unwrap();
+
+        let output_str = String::from_utf8_lossy(&output);
+        assert!(output_str.contains("Status: Found"));
+        assert!(output_str.contains("API Key: Set"));
+    }
+
+    #[test]
+    fn test_show_config_info_when_config_file_exists_without_api_key() {
+        let temp_dir = TempDir::new().unwrap();
+        let loader = ConfigLoader::with_provider(Box::new(TempPathProvider::new(&temp_dir)));
+
+        // Create config file without API key
+        let config_path = temp_dir.path().join("config.toml");
+        fs::write(&config_path, "").unwrap();
+
+        let mut output = Vec::new();
+        loader.show_config_info_with_io(&mut output).unwrap();
+
+        let output_str = String::from_utf8_lossy(&output);
+        assert!(output_str.contains("Status: Found"));
+        assert!(output_str.contains("API Key: Not set"));
     }
 
     // =========================================================================

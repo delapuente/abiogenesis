@@ -104,9 +104,7 @@ pub struct LlmGenerator<H: HttpClient = ReqwestHttpClient> {
 impl LlmGenerator<ReqwestHttpClient> {
     /// Creates a new LlmGenerator with the default HTTP client.
     pub fn new() -> Self {
-        Self {
-            http_client: ReqwestHttpClient::new(),
-        }
+        Self::with_http_client(ReqwestHttpClient::new())
     }
 }
 
