@@ -96,9 +96,7 @@ impl Default for ConfigLoader {
 impl ConfigLoader {
     /// Creates a new ConfigLoader with the default [`HomePathProvider`].
     pub fn new() -> Self {
-        Self {
-            path_provider: Box::new(HomePathProvider),
-        }
+        Self::with_provider(Box::new(HomePathProvider))
     }
 
     /// Creates a new ConfigLoader with a custom path provider.
@@ -287,14 +285,6 @@ impl Config {
     /// Returns an error only if the home directory cannot be determined.
     pub fn load() -> Result<Self> {
         ConfigLoader::new().load()
-    }
-
-    /// Saves the configuration to `~/.abiogenesis/config.toml`.
-    ///
-    /// This is a convenience wrapper that creates a default [`ConfigLoader`]
-    /// and calls [`ConfigLoader::save`].
-    pub fn save(&self) -> Result<()> {
-        ConfigLoader::new().save(self)
     }
 
     /// Returns the configuration directory path (`~/.abiogenesis`).
