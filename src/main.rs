@@ -3,11 +3,12 @@ use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 use std::fs::OpenOptions;
 
-mod command_router;
-mod llm_generator;
 mod command_cache;
-mod executor;
+mod command_router;
 mod config;
+mod executor;
+mod http_client;
+mod llm_generator;
 mod permission_ui;
 
 use command_router::CommandRouter;
