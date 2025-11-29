@@ -219,7 +219,7 @@ impl PermissionUI {
 
     /// Prompts the user for permission consent using stdin/stdout.
     ///
-    /// This is a convenience wrapper around [`prompt_for_consent_with_io`].
+    /// This is a convenience wrapper around [`Self::prompt_for_consent_with_io`].
     ///
     /// # Arguments
     ///
@@ -293,7 +293,7 @@ impl PermissionUI {
 
     /// Shows permission denied message to stdout.
     ///
-    /// This is a convenience wrapper around [`show_permission_denied_with_io`].
+    /// This is a convenience wrapper around [`Self::show_permission_denied_with_io`].
     pub fn show_permission_denied(&self, command_name: &str) {
         let mut output = io::stdout();
         let _ = self.show_permission_denied_with_io(command_name, &mut output);
@@ -301,7 +301,7 @@ impl PermissionUI {
 
     /// Shows the "running with permissions" message to stdout.
     ///
-    /// This is a convenience wrapper around [`show_running_with_permissions_with_io`].
+    /// This is a convenience wrapper around [`Self::show_running_with_permissions_with_io`].
     ///
     /// In verbose mode, always shows the message. In non-verbose mode, only shows
     /// the message when permissions are not empty (for security awareness).

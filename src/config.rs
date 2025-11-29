@@ -212,7 +212,7 @@ impl ConfigLoader {
 
     /// Displays configuration information to stdout.
     ///
-    /// This is a convenience wrapper around [`show_config_info_with_io`].
+    /// This is a convenience wrapper around [`Self::show_config_info_with_io`].
     pub fn show_config_info(&self) -> Result<()> {
         self.show_config_info_with_io(&mut std::io::stdout())
     }
@@ -306,7 +306,7 @@ impl Config {
     /// Returns the API key if configured.
     ///
     /// Note: This returns the key stored in the struct. If you need the
-    /// environment variable to take precedence, use [`load`] first.
+    /// environment variable to take precedence, use [`Config::load`] first.
     pub fn get_api_key(&self) -> Option<&String> {
         self.anthropic_api_key.as_ref()
     }
