@@ -1,13 +1,62 @@
+//! Command routing and orchestration module.
+//!
+//! This module is the central coordinator for the ergo system. It routes user
+//! intents to the appropriate handler based on:
+//!
+//! 1. **System commands** - If the command exists in PATH, execute directly
+//! 2. **Cached commands** - If previously generated, retrieve and execute
+//! 3. **AI generation** - Generate a new command using the LLM
+//!
+//! # Flow
+//!
+//! ```text
+//! User Intent
+//!     │
+//!     ├── System Command? ──→ Execute via OS
+//!     │
+//!     ├── Cached Command? ──→ Check Permissions ──→ Execute via Deno
+//!     │
+//!     └── Unknown? ──→ Generate via LLM ──→ Cache ──→ Check Permissions ──→ Execute
+//! ```
+//!
+//! # Conversational Mode
+//!
+//! When the user provides a single argument containing spaces (e.g., "show me
+//! the current date"), it's treated as a natural language description. The
+//! router will generate a command based on this description and suggest a name.
+
 use crate::{
     command_cache::{CommandCache, PermissionConsent},
     executor::Executor,
-    llm_generator::{LlmGenerator, CommandGenerator},
+    llm_generator::{CommandGenerator, LlmGenerator},
     permission_ui::PermissionUI,
 };
 use anyhow::Result;
 use tracing::{info, warn};
 use which::which;
 
+/// Routes user intents to appropriate command handlers.
+///
+/// The router is the main orchestrator that coordinates between:
+/// - Command cache for persistent storage
+/// - LLM generator for creating new commands
+/// - Executor for running commands
+/// - Permission UI for user consent
+///
+/// # Example
+///
+/// ```ignore
+/// let mut router = CommandRouter::new(false).await?;
+///
+/// // Execute a system command
+/// router.process_intent(vec!["ls".to_string(), "-la".to_string()]).await?;
+///
+/// // Generate and execute a new command
+/// router.process_intent(vec!["hello".to_string()]).await?;
+///
+/// // Conversational mode
+/// router.process_intent(vec!["show me today's date".to_string()]).await?;
+/// ```
 pub struct CommandRouter {
     cache: CommandCache,
     generator: LlmGenerator,
@@ -17,6 +66,18 @@ pub struct CommandRouter {
 }
 
 impl CommandRouter {
+    /// Creates a new command router.
+    ///
+    /// Initializes all subsystems including the command cache, LLM generator,
+    /// executor, and permission UI.
+    ///
+    /// # Arguments
+    ///
+    /// * `verbose` - If true, enables verbose output during command processing
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command cache cannot be initialized.
     pub async fn new(verbose: bool) -> Result<Self> {
         Ok(Self {
             cache: CommandCache::new().await?,
@@ -27,8 +88,28 @@ impl CommandRouter {
         })
     }
 
+    /// Processes a user intent and executes the appropriate command.
+    ///
+    /// This is the main entry point for command execution. The router determines
+    /// how to handle the intent based on:
+    ///
+    /// 1. If the first argument is a system command, execute it directly
+    /// 2. If the command is cached, retrieve and execute with permission check
+    /// 3. If the intent is conversational (contains spaces), generate from description
+    /// 4. Otherwise, generate a new command with the given name
+    ///
+    /// # Arguments
+    ///
+    /// * `intent_args` - The command name and arguments, or a natural language description
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Command generation fails
+    /// - Command execution fails
+    /// - Cache operations fail
     pub async fn process_intent(&mut self, intent_args: Vec<String>) -> Result<()> {
-        // Check if this is conversational mode (single argument with spaces = natural language description)
+        // Conversational mode: single argument with spaces = natural language
         if intent_args.len() == 1 && intent_args[0].contains(' ') {
             info!("Detected conversational mode: {}", intent_args[0]);
             return self.process_conversational_intent(&intent_args[0]).await;
@@ -96,14 +177,22 @@ impl CommandRouter {
         }
     }
 
+    /// Processes a natural language description to generate and execute a command.
+    ///
+    /// This handles "conversational mode" where the user provides a description
+    /// instead of a command name. The LLM will suggest both the command name
+    /// and implementation.
     async fn process_conversational_intent(&mut self, description: &str) -> Result<()> {
         info!("Processing conversational intent: {}", description);
         if self.verbose {
             println!("💭 Understanding your request: {}", description);
         }
-        
+
         // Generate command from natural language description
-        let generation_result = self.generator.generate_command_from_description(description).await?;
+        let generation_result = self
+            .generator
+            .generate_command_from_description(description)
+            .await?;
         
         if self.verbose {
             println!("🎯 Generated command: {}", generation_result.command.name);
@@ -132,6 +221,16 @@ impl CommandRouter {
         }
     }
 
+    /// Checks and requests permission consent for a command.
+    ///
+    /// If the user has previously granted "AcceptForever" consent, returns the
+    /// stored decision. Otherwise, prompts the user for consent and stores
+    /// their decision.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(decision)` with the user's consent choice
+    /// - The decision is also persisted to the cache
     async fn check_and_request_permissions(
         &mut self,
         command_name: &str,
@@ -153,13 +252,14 @@ impl CommandRouter {
         )?;
 
         // Create and store decision
-        let decision = self.permission_ui.create_permission_decision(
-            command.permissions.clone(),
-            consent,
-        );
+        let decision = self
+            .permission_ui
+            .create_permission_decision(command.permissions.clone(), consent);
 
-        self.cache.set_permission_decision(command_name, decision.clone()).await?;
-        
+        self.cache
+            .set_permission_decision(command_name, decision.clone())
+            .await?;
+
         Ok(Some(decision))
     }
 }
