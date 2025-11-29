@@ -5,6 +5,7 @@
 
 use crate::command_cache::{PermissionConsent, PermissionDecision};
 use crate::llm_generator::PermissionRequest;
+use crate::providers::{SystemTimeProvider, TimeProvider};
 use anyhow::Result;
 use std::io::{self, BufRead, Write};
 use tracing::info;
@@ -36,6 +37,7 @@ use tracing::info;
 /// ```
 pub struct PermissionUI {
     verbose: bool,
+    time_provider: Box<dyn TimeProvider>,
 }
 
 impl PermissionUI {
@@ -45,7 +47,18 @@ impl PermissionUI {
     ///
     /// * `verbose` - If true, shows additional output messages
     pub fn new(verbose: bool) -> Self {
-        Self { verbose }
+        Self {
+            verbose,
+            time_provider: Box::new(SystemTimeProvider),
+        }
+    }
+
+    /// Creates a `PermissionUI` with a custom time provider (for testing).
+    pub fn with_time_provider(verbose: bool, time_provider: Box<dyn TimeProvider>) -> Self {
+        Self {
+            verbose,
+            time_provider,
+        }
     }
 
     // =========================================================================
@@ -235,8 +248,8 @@ impl PermissionUI {
 
     /// Creates a permission decision record.
     ///
-    /// This is a pure function that creates a [`PermissionDecision`] with
-    /// the current timestamp.
+    /// Creates a [`PermissionDecision`] with the current timestamp from
+    /// the time provider.
     ///
     /// # Arguments
     ///
@@ -251,7 +264,11 @@ impl PermissionUI {
         permissions: Vec<PermissionRequest>,
         consent: PermissionConsent,
     ) -> PermissionDecision {
-        self.create_permission_decision_with_timestamp(permissions, consent, Self::current_timestamp())
+        PermissionDecision {
+            permissions,
+            consent,
+            decided_at: self.time_provider.now(),
+        }
     }
 
     /// Creates a permission decision with a specific timestamp.
@@ -274,14 +291,6 @@ impl PermissionUI {
             consent,
             decided_at: timestamp,
         }
-    }
-
-    /// Returns the current Unix timestamp.
-    fn current_timestamp() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
     }
 
     /// Shows permission denied message to stdout.
@@ -489,24 +498,22 @@ mod tests {
     }
 
     #[test]
-    fn test_create_permission_decision_uses_current_time() {
-        let ui = PermissionUI::new(false);
+    fn test_create_permission_decision_uses_injected_time_provider() {
+        use crate::providers::TimeProvider;
+
+        struct MockTime;
+        impl TimeProvider for MockTime {
+            fn now(&self) -> u64 {
+                42
+            }
+        }
+
+        let ui = PermissionUI::with_time_provider(false, Box::new(MockTime));
         let permissions = vec![];
 
-        let before = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let decision = ui.create_permission_decision(permissions, PermissionConsent::AcceptOnce);
 
-        let decision = ui.create_permission_decision(permissions, PermissionConsent::Denied);
-
-        let after = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        assert!(decision.decided_at >= before);
-        assert!(decision.decided_at <= after);
+        assert_eq!(decision.decided_at, 42);
     }
 
     // =========================================================================

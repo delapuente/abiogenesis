@@ -18,6 +18,7 @@
 //! 3. Home directory's `~/.abiogenesis/biomas/`
 
 use crate::llm_generator::{GeneratedCommand, PermissionRequest};
+use crate::providers::{SystemTimeProvider, TimeProvider};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -46,14 +47,6 @@ pub trait CachePathResolver: Send + Sync {
     ///
     /// Returns the script content if found, None otherwise.
     fn find_script(&self, script_file: &str) -> Result<Option<String>>;
-}
-
-/// Trait for providing timestamps.
-///
-/// This abstraction enables deterministic testing of time-dependent behavior.
-pub trait TimeProvider: Send + Sync {
-    /// Returns the current Unix timestamp in seconds.
-    fn now(&self) -> u64;
 }
 
 // =============================================================================
@@ -141,18 +134,6 @@ impl CachePathResolver for HierarchyPathResolver {
             }
         }
         Ok(None)
-    }
-}
-
-/// Default time provider using system time.
-pub struct SystemTimeProvider;
-
-impl TimeProvider for SystemTimeProvider {
-    fn now(&self) -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
     }
 }
 

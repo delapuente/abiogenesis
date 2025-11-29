@@ -10,6 +10,7 @@ mod executor;
 mod http_client;
 mod llm_generator;
 mod permission_ui;
+mod providers;
 
 use command_router::CommandRouter;
 
