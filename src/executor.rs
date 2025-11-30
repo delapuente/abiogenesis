@@ -11,6 +11,7 @@ use crate::command_cache::CommandCache;
 use crate::execution_context::ExecutionContext;
 use crate::llm_generator::GeneratedCommand;
 use anyhow::{anyhow, Result};
+use io_tee::TeeWriter;
 use std::process::{Command, Output};
 use tracing::{error, info};
 
@@ -149,57 +150,11 @@ impl Executor {
         Ok(())
     }
 
-    /// Executes a cached command.
-    ///
-    /// This is a convenience wrapper around `execute_generated_command` that
-    /// takes ownership of the command.
-    pub async fn execute_cached_command(
-        &self,
-        command: GeneratedCommand,
-        cache: &CommandCache,
-        args: &[String],
-    ) -> Result<()> {
-        info!("Executing cached command: {} - {}", command.name, command.description);
-        self.execute_generated_command(&command, cache, args).await
-    }
-
-    /// Executes a generated Deno command.
-    ///
-    /// The command script is retrieved from the cache and executed in Deno's
-    /// sandbox with the specified permissions.
-    ///
-    /// # Arguments
-    ///
-    /// * `command` - The generated command metadata
-    /// * `cache` - Command cache to retrieve the script from
-    /// * `args` - Arguments to pass to the script
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The script cannot be retrieved from cache
-    /// - Deno is not installed
-    /// - The script execution fails
-    pub async fn execute_generated_command(
-        &self,
-        command: &GeneratedCommand,
-        cache: &CommandCache,
-        args: &[String],
-    ) -> Result<()> {
-        self.execute_generated_command_with_deps(
-            command,
-            cache,
-            args,
-            &SystemProcessRunner,
-            &mut std::io::stdout(),
-            &mut std::io::stderr(),
-        )
-    }
-
     /// Executes a generated Deno command and saves execution context.
     ///
     /// This variant saves the execution context (command name, script, stderr)
-    /// to enable the `--nope` feedback loop.
+    /// to enable the `--nope` feedback loop. Output is written to both
+    /// stdout/stderr and captured for the execution context.
     ///
     /// # Arguments
     ///
@@ -230,22 +185,18 @@ impl Executor {
             }
         };
 
+        // Use TeeWriter to write to both real stdout/stderr AND capture buffers
+        let mut stdout_tee = TeeWriter::new(std::io::stdout(), &mut stdout_buf);
+        let mut stderr_tee = TeeWriter::new(std::io::stderr(), &mut stderr_buf);
+
         let result = self.execute_generated_command_with_deps(
             command,
             cache,
             args,
             &SystemProcessRunner,
-            &mut stdout_buf,
-            &mut stderr_buf,
+            &mut stdout_tee,
+            &mut stderr_tee,
         );
-
-        // Print captured output
-        if !stdout_buf.is_empty() {
-            print!("{}", String::from_utf8_lossy(&stdout_buf));
-        }
-        if !stderr_buf.is_empty() {
-            eprint!("{}", String::from_utf8_lossy(&stderr_buf));
-        }
 
         let success = result.is_ok();
         let stderr_str = if stderr_buf.is_empty() {

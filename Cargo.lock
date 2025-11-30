@@ -10,6 +10,7 @@ dependencies = [
  "async-trait",
  "clap",
  "dirs",
+ "io_tee",
  "reqwest",
  "serde",
  "serde_json",
@@ -645,6 +646,12 @@ dependencies = [
  "cfg-if",
  "libc",
 ]
+
+[[package]]
+name = "io_tee"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b3f7cef34251886990511df1c61443aa928499d598a9473929ab5a90a527304"
 
 [[package]]
 name = "ipnet"
