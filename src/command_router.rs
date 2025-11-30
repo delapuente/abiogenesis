@@ -130,24 +130,9 @@ impl CommandRouter {
         // Check if command exists in our cache
         if let Some(cached_command) = self.cache.get_command(command_name).await? {
             info!("Command '{}' found in cache, checking permissions", command_name);
-            
-            if let Some(decision) = self.check_and_request_permissions(command_name, &cached_command).await? {
-                match decision.consent {
-                    PermissionConsent::AcceptOnce | PermissionConsent::AcceptForever => {
-                        self.permission_ui.show_running_with_permissions(command_name, &cached_command.permissions);
-                        self.cache.update_usage(command_name).await?;
-                        let _result = self.executor.execute_generated_command_with_context(&cached_command, &self.cache, args).await;
-                        return Ok(());
-                    }
-                    PermissionConsent::Denied => {
-                        self.permission_ui.show_permission_denied(command_name);
-                        return Ok(());
-                    }
-                }
-            } else {
-                // User denied permission, don't execute
-                return Ok(());
-            }
+            return self
+                .execute_with_permissions(command_name, &cached_command, args)
+                .await;
         }
 
         // Generate new command using LLM
@@ -156,28 +141,14 @@ impl CommandRouter {
         }
         warn!("Command '{}' not found, generating with AI", command_name);
         let generation_result = self.generator.generate_command(command_name, args).await?;
-        
+
         // Cache the generated command and its script
-        self.cache.store_command(command_name, &generation_result.command, &generation_result.script_content).await?;
-        
-        // Check permissions for generated command
-        if let Some(decision) = self.check_and_request_permissions(command_name, &generation_result.command).await? {
-            match decision.consent {
-                PermissionConsent::AcceptOnce | PermissionConsent::AcceptForever => {
-                    self.permission_ui.show_running_with_permissions(command_name, &generation_result.command.permissions);
-                    self.cache.update_usage(command_name).await?;
-                    let _result = self.executor.execute_generated_command_with_context(&generation_result.command, &self.cache, args).await;
-                    Ok(())
-                }
-                PermissionConsent::Denied => {
-                    self.permission_ui.show_permission_denied(command_name);
-                    Ok(())
-                }
-            }
-        } else {
-            // User denied permission, don't execute
-            Ok(())
-        }
+        self.cache
+            .store_command(command_name, &generation_result.command, &generation_result.script_content)
+            .await?;
+
+        self.execute_with_permissions(command_name, &generation_result.command, args)
+            .await
     }
 
     /// Processes a natural language description to generate and execute a command.
@@ -196,33 +167,23 @@ impl CommandRouter {
             .generator
             .generate_command_from_description(description)
             .await?;
-        
+
         if self.verbose {
             println!("🎯 Generated command: {}", generation_result.command.name);
             println!("📝 Description: {}", generation_result.command.description);
         }
-        
+
         // Cache the generated command and its script
-        self.cache.store_command(&generation_result.command.name, &generation_result.command, &generation_result.script_content).await?;
-        
-        // Check permissions for generated command
-        if let Some(decision) = self.check_and_request_permissions(&generation_result.command.name, &generation_result.command).await? {
-            match decision.consent {
-                PermissionConsent::AcceptOnce | PermissionConsent::AcceptForever => {
-                    self.permission_ui.show_running_with_permissions(&generation_result.command.name, &generation_result.command.permissions);
-                    self.cache.update_usage(&generation_result.command.name).await?;
-                    let _result = self.executor.execute_generated_command_with_context(&generation_result.command, &self.cache, &[]).await;
-                    Ok(())
-                }
-                PermissionConsent::Denied => {
-                    self.permission_ui.show_permission_denied(&generation_result.command.name);
-                    Ok(())
-                }
-            }
-        } else {
-            // User denied permission, don't execute
-            Ok(())
-        }
+        self.cache
+            .store_command(
+                &generation_result.command.name,
+                &generation_result.command,
+                &generation_result.script_content,
+            )
+            .await?;
+
+        self.execute_with_permissions(&generation_result.command.name, &generation_result.command, &[])
+            .await
     }
 
     /// Processes corrective feedback loop to regenerate a command.
@@ -289,34 +250,44 @@ impl CommandRouter {
             )
             .await?;
 
-        // Check permissions and execute
-        if let Some(decision) = self
-            .check_and_request_permissions(&context.command_name, &generation_result.command)
-            .await?
-        {
+        self.execute_with_permissions(&context.command_name, &generation_result.command, &[])
+            .await
+    }
+
+    /// Checks permissions and executes a generated command if approved.
+    ///
+    /// This is the common workflow for executing any generated command:
+    /// 1. Check/request permission consent from the user
+    /// 2. If approved, show permissions and execute the command
+    /// 3. If denied, show denial message
+    ///
+    /// # Arguments
+    ///
+    /// * `command_name` - The name of the command to execute
+    /// * `command` - The generated command metadata
+    /// * `args` - Arguments to pass to the command
+    async fn execute_with_permissions(
+        &mut self,
+        command_name: &str,
+        command: &crate::llm_generator::GeneratedCommand,
+        args: &[String],
+    ) -> Result<()> {
+        if let Some(decision) = self.check_and_request_permissions(command_name, command).await? {
             match decision.consent {
                 PermissionConsent::AcceptOnce | PermissionConsent::AcceptForever => {
-                    self.permission_ui.show_running_with_permissions(
-                        &context.command_name,
-                        &generation_result.command.permissions,
-                    );
-                    self.cache.update_usage(&context.command_name).await?;
+                    self.permission_ui
+                        .show_running_with_permissions(command_name, &command.permissions);
+                    self.cache.update_usage(command_name).await?;
                     let _result = self
                         .executor
-                        .execute_generated_command_with_context(
-                            &generation_result.command,
-                            &self.cache,
-                            &[],
-                        )
+                        .execute_generated_command_with_context(command, &self.cache, args)
                         .await;
                 }
                 PermissionConsent::Denied => {
-                    self.permission_ui
-                        .show_permission_denied(&context.command_name);
+                    self.permission_ui.show_permission_denied(command_name);
                 }
             }
         }
-
         Ok(())
     }
 
