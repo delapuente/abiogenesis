@@ -1,6 +1,10 @@
 use abiogenesis::command_cache::{CommandCache, PermissionConsent};
 use abiogenesis::command_router::CommandRouter;
 use abiogenesis::config::Config;
+use abiogenesis::execution_context::ExecutionContext;
+use abiogenesis::executor::Executor;
+use abiogenesis::llm_generator::LlmGenerator;
+use abiogenesis::permission_ui::PermissionUI;
 use clap::{Arg, Command};
 use std::fs::OpenOptions;
 use tracing::info;
@@ -78,6 +82,12 @@ async fn main() -> anyhow::Result<()> {
             .long("verbose")
             .help("Enable verbose output")
             .action(clap::ArgAction::SetTrue))
+        .arg(Arg::new("nope")
+            .short('n')
+            .long("nope")
+            .help("Provide feedback to regenerate the last command")
+            .value_name("FEEDBACK")
+            .num_args(1))
         .get_matches();
     
     // Setup logging early, but after parsing verbose flag
@@ -153,6 +163,11 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Handle --nope feedback loop
+    if let Some(feedback) = matches.get_one::<String>("nope") {
+        return handle_nope_feedback(feedback, verbose).await;
+    }
+
     // Handle normal command execution
     let intent_args: Vec<String> = matches
         .get_many::<String>("intent")
@@ -166,9 +181,95 @@ async fn main() -> anyhow::Result<()> {
     }
     
     info!("Processing intent: {:?}", intent_args);
-    
+
     let mut router = CommandRouter::new(verbose).await?;
     router.process_intent(intent_args).await?;
-    
+
+    Ok(())
+}
+
+/// Handles the --nope feedback loop to regenerate a command.
+async fn handle_nope_feedback(feedback: &str, verbose: bool) -> anyhow::Result<()> {
+    // Load the last execution context
+    let context = match ExecutionContext::load()? {
+        Some(ctx) => ctx,
+        None => {
+            eprintln!("No previous command execution found. Run a command first, then use --nope.");
+            return Ok(());
+        }
+    };
+
+    if verbose {
+        println!("🔄 Regenerating command '{}' with feedback...", context.command_name);
+        println!("💭 Feedback: {}", feedback);
+    }
+
+    info!("Regenerating command '{}' with feedback: {}", context.command_name, feedback);
+
+    // Regenerate the command with feedback
+    let generator = LlmGenerator::new();
+    let generation_result = generator
+        .regenerate_command_with_feedback(
+            &context.command_name,
+            &context.script_content,
+            context.stderr.as_deref(),
+            feedback,
+        )
+        .await?;
+
+    if verbose {
+        println!("✨ Command regenerated successfully!");
+        println!("📝 New description: {}", generation_result.command.description);
+    }
+
+    // Update the command in cache
+    let mut cache = CommandCache::new().await?;
+    cache
+        .store_command(
+            &context.command_name,
+            &generation_result.command,
+            &generation_result.script_content,
+        )
+        .await?;
+
+    // Reset permission decision since the command changed
+    // (User should re-approve the new version)
+
+    // Check permissions and execute
+    let permission_ui = PermissionUI::new(verbose);
+    let consent = permission_ui.prompt_for_consent(
+        &context.command_name,
+        &generation_result.command.description,
+        &generation_result.command.permissions,
+    )?;
+
+    let decision = permission_ui.create_permission_decision(
+        generation_result.command.permissions.clone(),
+        consent,
+    );
+
+    cache
+        .set_permission_decision(&context.command_name, decision.clone())
+        .await?;
+
+    match decision.consent {
+        PermissionConsent::AcceptOnce | PermissionConsent::AcceptForever => {
+            permission_ui.show_running_with_permissions(
+                &context.command_name,
+                &generation_result.command.permissions,
+            );
+            cache.update_usage(&context.command_name).await?;
+
+            // Execute the regenerated command and save context
+            let executor = Executor::new(verbose);
+            let _result = executor
+                .execute_generated_command_with_context(&generation_result.command, &cache, &[])
+                .await;
+        }
+        PermissionConsent::Denied => {
+            permission_ui.show_permission_denied(&context.command_name);
+        }
+    }
+
     Ok(())
 }

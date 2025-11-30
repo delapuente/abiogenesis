@@ -37,6 +37,7 @@
 pub mod command_cache;
 pub mod command_router;
 pub mod config;
+pub mod execution_context;
 pub mod executor;
 pub mod http_client;
 pub mod llm_generator;

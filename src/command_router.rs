@@ -135,7 +135,9 @@ impl CommandRouter {
                     PermissionConsent::AcceptOnce | PermissionConsent::AcceptForever => {
                         self.permission_ui.show_running_with_permissions(command_name, &cached_command.permissions);
                         self.cache.update_usage(command_name).await?;
-                        return self.executor.execute_cached_command(cached_command, &self.cache, args).await;
+                        // Use context-saving variant for feedback loop support
+                        let _result = self.executor.execute_generated_command_with_context(&cached_command, &self.cache, args).await;
+                        return Ok(());
                     }
                     PermissionConsent::Denied => {
                         self.permission_ui.show_permission_denied(command_name);
@@ -164,7 +166,9 @@ impl CommandRouter {
                 PermissionConsent::AcceptOnce | PermissionConsent::AcceptForever => {
                     self.permission_ui.show_running_with_permissions(command_name, &generation_result.command.permissions);
                     self.cache.update_usage(command_name).await?;
-                    self.executor.execute_generated_command(&generation_result.command, &self.cache, args).await
+                    // Use context-saving variant for feedback loop support
+                    let _result = self.executor.execute_generated_command_with_context(&generation_result.command, &self.cache, args).await;
+                    Ok(())
                 }
                 PermissionConsent::Denied => {
                     self.permission_ui.show_permission_denied(command_name);
@@ -208,7 +212,9 @@ impl CommandRouter {
                 PermissionConsent::AcceptOnce | PermissionConsent::AcceptForever => {
                     self.permission_ui.show_running_with_permissions(&generation_result.command.name, &generation_result.command.permissions);
                     self.cache.update_usage(&generation_result.command.name).await?;
-                    self.executor.execute_generated_command(&generation_result.command, &self.cache, &[]).await
+                    // Use context-saving variant for feedback loop support
+                    let _result = self.executor.execute_generated_command_with_context(&generation_result.command, &self.cache, &[]).await;
+                    Ok(())
                 }
                 PermissionConsent::Denied => {
                     self.permission_ui.show_permission_denied(&generation_result.command.name);

@@ -151,6 +151,48 @@ impl<H: HttpClient> LlmGenerator<H> {
         }
     }
 
+    /// Regenerates a command with user feedback.
+    ///
+    /// This method is used by the `--nope` feedback loop to improve a command
+    /// that didn't meet expectations.
+    ///
+    /// # Arguments
+    ///
+    /// * `command_name` - The name of the command to regenerate
+    /// * `original_script` - The original script that was executed
+    /// * `stderr` - Standard error output from the failed execution (if any)
+    /// * `user_feedback` - User's feedback about what went wrong
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No API key is configured
+    /// - The API request fails
+    /// - The response cannot be parsed
+    pub async fn regenerate_command_with_feedback(
+        &self,
+        command_name: &str,
+        original_script: &str,
+        stderr: Option<&str>,
+        user_feedback: &str,
+    ) -> Result<GenerationResult> {
+        info!("Regenerating command '{}' with feedback: {}", command_name, user_feedback);
+
+        let config = crate::config::Config::load()?;
+
+        if let Some(api_key) = config.get_api_key() {
+            info!("Using Claude API for command regeneration");
+            let prompt = self.build_feedback_prompt(command_name, original_script, stderr, user_feedback);
+            let mut result = self.call_claude_api_with_prompt(&prompt, api_key).await?;
+            // Keep the original command name
+            result.command.name = command_name.to_string();
+            result.command.script_file = format!("{}.ts", command_name);
+            Ok(result)
+        } else {
+            Err(Self::api_key_missing_error())
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Internal helpers
     // -------------------------------------------------------------------------
@@ -226,6 +268,67 @@ RULES:
 - Include try/catch for error handling
 - CRITICAL: RESPOND ONLY WITH THE JSON OBJECT ABOVE - NO OTHER TEXT",
             request_description
+        )
+    }
+
+    fn build_feedback_prompt(
+        &self,
+        command_name: &str,
+        original_script: &str,
+        stderr: Option<&str>,
+        user_feedback: &str,
+    ) -> String {
+        let error_context = if let Some(err) = stderr {
+            format!("\n\nERROR OUTPUT FROM EXECUTION:\n```\n{}\n```", err)
+        } else {
+            String::new()
+        };
+
+        format!(
+            "CRITICAL: Your response must be EXACTLY a JSON object. No explanations, no code blocks, no other text.
+
+I need you to improve an existing command called '{}' based on user feedback.
+
+ORIGINAL SCRIPT:
+```typescript
+{}
+```{}
+
+USER FEEDBACK:
+\"{}\"
+
+Please create an improved version that addresses the feedback.
+
+RESPOND WITH EXACTLY THIS FORMAT (with your values):
+{{
+  \"name\": \"{}\",
+  \"description\": \"Brief description of what this command does\",
+  \"script\": \"console.log('improved code here');\",
+  \"permissions\": [
+    {{
+      \"permission\": \"--allow-read\",
+      \"reason\": \"Read files from the current directory\"
+    }}
+  ]
+}}
+
+RULES:
+- Keep the same command name: '{}'
+- Address the user's feedback in your improved implementation
+- Create real, working functionality - no placeholder code
+- Use Deno APIs when needed
+- Arguments available as Deno.args if the command should accept them
+- Use MINIMAL permissions (empty [] preferred)
+- Valid permission values: --allow-read, --allow-write, --allow-net, --allow-env, --allow-run
+- For each permission, provide a clear reason why it's needed in user-friendly language
+- Include try/catch for error handling
+- CRITICAL: RESPOND ONLY WITH THE JSON OBJECT ABOVE - NO OTHER TEXT",
+            command_name,
+            original_script,
+            error_context,
+            user_feedback,
+            command_name,
+            command_name
         )
     }
 
@@ -457,5 +560,149 @@ mod tests {
 
         let result = LlmGenerator::<ReqwestHttpClient>::parse_claude_response(response);
         assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Feedback prompt tests
+    // =========================================================================
+
+    #[test]
+    fn test_build_feedback_prompt_includes_command_name() {
+        let generator = LlmGenerator::new();
+        let prompt = generator.build_feedback_prompt(
+            "password",
+            "console.log('abc');",
+            None,
+            "make it longer",
+        );
+
+        assert!(prompt.contains("password"));
+        assert!(prompt.contains("Keep the same command name: 'password'"));
+    }
+
+    #[test]
+    fn test_build_feedback_prompt_includes_original_script() {
+        let generator = LlmGenerator::new();
+        let original_script = "const pw = Math.random().toString(36).slice(2, 8);";
+        let prompt = generator.build_feedback_prompt(
+            "password",
+            original_script,
+            None,
+            "make it longer",
+        );
+
+        assert!(prompt.contains(original_script));
+        assert!(prompt.contains("ORIGINAL SCRIPT:"));
+    }
+
+    #[test]
+    fn test_build_feedback_prompt_includes_user_feedback() {
+        let generator = LlmGenerator::new();
+        let feedback = "password must be at least 15 characters with symbols";
+        let prompt = generator.build_feedback_prompt(
+            "password",
+            "console.log('short');",
+            None,
+            feedback,
+        );
+
+        assert!(prompt.contains(feedback));
+        assert!(prompt.contains("USER FEEDBACK:"));
+    }
+
+    #[test]
+    fn test_build_feedback_prompt_includes_stderr_when_present() {
+        let generator = LlmGenerator::new();
+        let stderr = "Error: password too short";
+        let prompt = generator.build_feedback_prompt(
+            "password",
+            "console.log('abc');",
+            Some(stderr),
+            "make it longer",
+        );
+
+        assert!(prompt.contains(stderr));
+        assert!(prompt.contains("ERROR OUTPUT FROM EXECUTION:"));
+    }
+
+    #[test]
+    fn test_build_feedback_prompt_omits_error_section_when_no_stderr() {
+        let generator = LlmGenerator::new();
+        let prompt = generator.build_feedback_prompt(
+            "hello",
+            "console.log('Hello');",
+            None,
+            "add a greeting parameter",
+        );
+
+        assert!(!prompt.contains("ERROR OUTPUT FROM EXECUTION:"));
+    }
+
+    #[test]
+    fn test_build_feedback_prompt_requires_json_response() {
+        let generator = LlmGenerator::new();
+        let prompt = generator.build_feedback_prompt(
+            "test",
+            "console.log('test');",
+            None,
+            "improve it",
+        );
+
+        assert!(prompt.contains("EXACTLY a JSON object"));
+        assert!(prompt.contains("\"name\":"));
+        assert!(prompt.contains("\"description\":"));
+        assert!(prompt.contains("\"script\":"));
+        assert!(prompt.contains("\"permissions\":"));
+    }
+
+    #[test]
+    fn test_build_feedback_prompt_mentions_deno_rules() {
+        let generator = LlmGenerator::new();
+        let prompt = generator.build_feedback_prompt(
+            "test",
+            "console.log('test');",
+            None,
+            "improve it",
+        );
+
+        assert!(prompt.contains("Deno APIs"));
+        assert!(prompt.contains("Deno.args"));
+        assert!(prompt.contains("--allow-read"));
+        assert!(prompt.contains("--allow-net"));
+    }
+
+    #[test]
+    fn test_build_feedback_prompt_with_multiline_script() {
+        let generator = LlmGenerator::new();
+        let script = r#"
+function generatePassword() {
+    return "abc123";
+}
+console.log(generatePassword());
+"#;
+        let prompt = generator.build_feedback_prompt(
+            "password",
+            script,
+            None,
+            "add symbols",
+        );
+
+        assert!(prompt.contains("generatePassword"));
+        assert!(prompt.contains("abc123"));
+    }
+
+    #[test]
+    fn test_build_feedback_prompt_with_multiline_stderr() {
+        let generator = LlmGenerator::new();
+        let stderr = "error: Uncaught Error: something failed\n    at generatePassword (file:///tmp/script.ts:5:11)\n    at file:///tmp/script.ts:8:13";
+        let prompt = generator.build_feedback_prompt(
+            "password",
+            "console.log('test');",
+            Some(stderr),
+            "fix the error",
+        );
+
+        assert!(prompt.contains("Uncaught Error"));
+        assert!(prompt.contains("at generatePassword"));
     }
 }

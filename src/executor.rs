@@ -8,10 +8,20 @@
 //! explicit permission grants for security.
 
 use crate::command_cache::CommandCache;
+use crate::execution_context::ExecutionContext;
 use crate::llm_generator::GeneratedCommand;
 use anyhow::{anyhow, Result};
 use std::process::{Command, Output};
 use tracing::{error, info};
+
+/// Result of executing a generated command.
+#[derive(Debug)]
+pub struct ExecutionResult {
+    /// Whether the command succeeded.
+    pub success: bool,
+    /// Standard error output (if any).
+    pub stderr: Option<String>,
+}
 
 // =============================================================================
 // Traits for Dependency Injection
@@ -184,6 +194,81 @@ impl Executor {
             &mut std::io::stdout(),
             &mut std::io::stderr(),
         )
+    }
+
+    /// Executes a generated Deno command and saves execution context.
+    ///
+    /// This variant saves the execution context (command name, script, stderr)
+    /// to enable the `--nope` feedback loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The generated command metadata
+    /// * `cache` - Command cache to retrieve the script from
+    /// * `args` - Arguments to pass to the script
+    ///
+    /// # Returns
+    ///
+    /// Returns `ExecutionResult` with success status and stderr output.
+    pub async fn execute_generated_command_with_context(
+        &self,
+        command: &GeneratedCommand,
+        cache: &CommandCache,
+        args: &[String],
+    ) -> ExecutionResult {
+        let mut stdout_buf = Vec::new();
+        let mut stderr_buf = Vec::new();
+
+        let script_content = match cache.get_script_content(command) {
+            Ok(content) => content,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                return ExecutionResult {
+                    success: false,
+                    stderr: Some(e.to_string()),
+                };
+            }
+        };
+
+        let result = self.execute_generated_command_with_deps(
+            command,
+            cache,
+            args,
+            &SystemProcessRunner,
+            &mut stdout_buf,
+            &mut stderr_buf,
+        );
+
+        // Print captured output
+        if !stdout_buf.is_empty() {
+            print!("{}", String::from_utf8_lossy(&stdout_buf));
+        }
+        if !stderr_buf.is_empty() {
+            eprint!("{}", String::from_utf8_lossy(&stderr_buf));
+        }
+
+        let success = result.is_ok();
+        let stderr_str = if stderr_buf.is_empty() {
+            None
+        } else {
+            Some(String::from_utf8_lossy(&stderr_buf).to_string())
+        };
+
+        // Save execution context for --nope feedback
+        let context = ExecutionContext::new(
+            &command.name,
+            &script_content,
+            stderr_str.clone(),
+            success,
+        );
+        if let Err(e) = context.save() {
+            error!("Failed to save execution context: {}", e);
+        }
+
+        ExecutionResult {
+            success,
+            stderr: stderr_str,
+        }
     }
 
     /// Executes a generated command with injected dependencies (for testing).
