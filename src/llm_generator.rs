@@ -12,6 +12,110 @@ use serde_json::json;
 use tracing::info;
 
 // =============================================================================
+// Prompt Building
+// =============================================================================
+
+/// Reusable prompt sections for LLM command generation.
+mod prompt_sections {
+    /// Critical instruction for JSON-only response.
+    pub const JSON_PREAMBLE: &str =
+        "CRITICAL: Your response must be EXACTLY a JSON object. No explanations, no code blocks, no other text.";
+
+    /// The expected JSON response schema.
+    pub const RESPONSE_SCHEMA: &str = r#"RESPOND WITH EXACTLY THIS FORMAT (with your values):
+{
+  "name": "suggested-command-name",
+  "description": "Brief description of what this command does",
+  "script": "console.log('working code here');",
+  "permissions": [
+    {
+      "permission": "--allow-read",
+      "reason": "Read files from the current directory"
+    }
+  ]
+}"#;
+
+    /// Rules for using Deno APIs.
+    pub const DENO_RULES: &str =
+        "- Use Deno APIs when needed\n- Arguments available as Deno.args if the command should accept them";
+
+    /// Rules for requesting minimal permissions.
+    pub const PERMISSION_RULES: &str =
+        "- Use MINIMAL permissions (empty [] preferred)\n\
+         - Valid permission values: --allow-read, --allow-write, --allow-net, --allow-env, --allow-run\n\
+         - For each permission, provide a clear reason why it's needed in user-friendly language";
+
+    /// Rules for code quality.
+    pub const QUALITY_RULES: &str =
+        "- Create real, working functionality - no placeholder code\n\
+         - Include try/catch for error handling";
+
+    /// Final reminder to output only JSON.
+    pub const JSON_ONLY_REMINDER: &str =
+        "- CRITICAL: RESPOND ONLY WITH THE JSON OBJECT ABOVE - NO OTHER TEXT";
+}
+
+/// Builder for composing LLM prompts from reusable sections.
+///
+/// # Example
+///
+/// ```ignore
+/// let prompt = PromptBuilder::new()
+///     .section("Some instruction")
+///     .context("Request", "user request here")
+///     .rules(&["Rule 1", "Rule 2"])
+///     .build();
+/// ```
+struct PromptBuilder {
+    sections: Vec<String>,
+}
+
+impl PromptBuilder {
+    /// Creates a new empty prompt builder.
+    fn new() -> Self {
+        Self { sections: Vec::new() }
+    }
+
+    /// Adds a text section to the prompt.
+    fn section(mut self, text: &str) -> Self {
+        self.sections.push(text.to_string());
+        self
+    }
+
+    /// Adds a labeled context section (e.g., "Request: ...").
+    fn context(mut self, label: &str, content: &str) -> Self {
+        self.sections.push(format!("{}:\n\"{}\"", label, content));
+        self
+    }
+
+    /// Adds a code block with a label.
+    fn code_block(mut self, label: &str, code: &str) -> Self {
+        self.sections.push(format!("{}:\n```typescript\n{}\n```", label, code));
+        self
+    }
+
+    /// Conditionally adds a code block if content is Some.
+    fn optional_code_block(mut self, label: &str, code: Option<&str>) -> Self {
+        if let Some(content) = code {
+            self.sections.push(format!("\n{}:\n```\n{}\n```", label, content));
+        }
+        self
+    }
+
+    /// Adds a rules section with multiple rule strings.
+    fn rules(mut self, rules: &[&str]) -> Self {
+        let rules_text = format!("RULES:\n{}", rules.join("\n"));
+        self.sections.push(rules_text);
+        self
+    }
+
+    /// Builds the final prompt string.
+    fn build(self) -> String {
+        self.sections.join("\n\n")
+    }
+}
+
+// =============================================================================
 // Data Types
 // =============================================================================
 
@@ -231,44 +335,27 @@ impl<H: HttpClient> LlmGenerator<H> {
     }
 
     fn build_unified_prompt(&self, request: &str, args: Option<&[String]>) -> String {
+        use prompt_sections::*;
+
         let request_description = if let Some(args) = args {
             format!("Create a command named '{}' that handles arguments {:?}", request, args)
         } else {
             request.to_string()
         };
 
-        format!(
-            "CRITICAL: Your response must be EXACTLY a JSON object. No explanations, no code blocks, no other text.
-
-Based on this request: \"{}\"
-
-Create a Deno/TypeScript command and suggest a short, descriptive command name.
-
-RESPOND WITH EXACTLY THIS FORMAT (with your values):
-{{
-  \"name\": \"suggested-command-name\",
-  \"description\": \"Brief description of what this command does\",
-  \"script\": \"console.log('working code here');\",
-  \"permissions\": [
-    {{
-      \"permission\": \"--allow-read\",
-      \"reason\": \"Read files from the current directory\"
-    }}
-  ]
-}}
-
-RULES:
-- Choose a clear, short command name (2-3 words max, kebab-case)
-- Create real, working functionality - no placeholder code
-- Use Deno APIs when needed
-- Arguments available as Deno.args if the command should accept them
-- Use MINIMAL permissions (empty [] preferred)
-- Valid permission values: --allow-read, --allow-write, --allow-net, --allow-env, --allow-run
-- For each permission, provide a clear reason why it's needed in user-friendly language
-- Include try/catch for error handling
-- CRITICAL: RESPOND ONLY WITH THE JSON OBJECT ABOVE - NO OTHER TEXT",
-            request_description
-        )
+        PromptBuilder::new()
+            .section(JSON_PREAMBLE)
+            .context("Based on this request", &request_description)
+            .section("Create a Deno/TypeScript command and suggest a short, descriptive command name.")
+            .section(RESPONSE_SCHEMA)
+            .rules(&[
+                "- Choose a clear, short command name (2-3 words max, kebab-case)",
+                QUALITY_RULES,
+                DENO_RULES,
+                PERMISSION_RULES,
+                JSON_ONLY_REMINDER,
+            ])
+            .build()
     }
 
     fn build_feedback_prompt(
@@ -278,58 +365,30 @@ RULES:
         stderr: Option<&str>,
         user_feedback: &str,
     ) -> String {
-        let error_context = if let Some(err) = stderr {
-            format!("\n\nERROR OUTPUT FROM EXECUTION:\n```\n{}\n```", err)
-        } else {
-            String::new()
-        };
+        use prompt_sections::*;
 
-        format!(
-            "CRITICAL: Your response must be EXACTLY a JSON object. No explanations, no code blocks, no other text.
+        let keep_name_rule = format!("- Keep the same command name: '{}'", command_name);
 
-I need you to improve an existing command called '{}' based on user feedback.
-
-ORIGINAL SCRIPT:
-```typescript
-{}
-```{}
-
-USER FEEDBACK:
-\"{}\"
-
-Please create an improved version that addresses the feedback.
-
-RESPOND WITH EXACTLY THIS FORMAT (with your values):
-{{
-  \"name\": \"{}\",
-  \"description\": \"Brief description of what this command does\",
-  \"script\": \"console.log('improved code here');\",
-  \"permissions\": [
-    {{
-      \"permission\": \"--allow-read\",
-      \"reason\": \"Read files from the current directory\"
-    }}
-  ]
-}}
-
-RULES:
-- Keep the same command name: '{}'
-- Address the user's feedback in your improved implementation
-- Create real, working functionality - no placeholder code
-- Use Deno APIs when needed
-- Arguments available as Deno.args if the command should accept them
-- Use MINIMAL permissions (empty [] preferred)
-- Valid permission values: --allow-read, --allow-write, --allow-net, --allow-env, --allow-run
-- For each permission, provide a clear reason why it's needed in user-friendly language
-- Include try/catch for error handling
-- CRITICAL: RESPOND ONLY WITH THE JSON OBJECT ABOVE - NO OTHER TEXT",
-            command_name,
-            original_script,
-            error_context,
-            user_feedback,
-            command_name,
-            command_name
-        )
+        PromptBuilder::new()
+            .section(JSON_PREAMBLE)
+            .section(&format!(
+                "I need you to improve an existing command called '{}' based on user feedback.",
+                command_name
+            ))
+            .code_block("ORIGINAL SCRIPT", original_script)
+            .optional_code_block("ERROR OUTPUT FROM EXECUTION", stderr)
+            .context("USER FEEDBACK", user_feedback)
+            .section("Please create an improved version that addresses the feedback.")
+            .section(RESPONSE_SCHEMA)
+            .rules(&[
+                &keep_name_rule,
+                "- Address the user's feedback in your improved implementation",
+                QUALITY_RULES,
+                DENO_RULES,
+                PERMISSION_RULES,
+                JSON_ONLY_REMINDER,
+            ])
+            .build()
     }
 
     async fn call_claude_api_with_prompt(&self, prompt: &str, api_key: &str) -> Result<GenerationResult> {
@@ -704,5 +763,103 @@ console.log(generatePassword());
 
         assert!(prompt.contains("Uncaught Error"));
         assert!(prompt.contains("at generatePassword"));
+    }
+
+    // =========================================================================
+    // PromptBuilder tests
+    // =========================================================================
+
+    #[test]
+    fn test_prompt_builder_section() {
+        let prompt = PromptBuilder::new()
+            .section("Hello")
+            .section("World")
+            .build();
+        assert_eq!(prompt, "Hello\n\nWorld");
+    }
+
+    #[test]
+    fn test_prompt_builder_single_section() {
+        let prompt = PromptBuilder::new()
+            .section("Only section")
+            .build();
+        assert_eq!(prompt, "Only section");
+    }
+
+    #[test]
+    fn test_prompt_builder_context() {
+        let prompt = PromptBuilder::new()
+            .context("Request", "do something")
+            .build();
+        assert!(prompt.contains("Request:"));
+        assert!(prompt.contains("\"do something\""));
+    }
+
+    #[test]
+    fn test_prompt_builder_code_block() {
+        let prompt = PromptBuilder::new()
+            .code_block("CODE", "console.log('test');")
+            .build();
+        assert!(prompt.contains("CODE:"));
+        assert!(prompt.contains("```typescript"));
+        assert!(prompt.contains("console.log('test');"));
+        assert!(prompt.contains("```"));
+    }
+
+    #[test]
+    fn test_prompt_builder_optional_code_block_some() {
+        let prompt = PromptBuilder::new()
+            .optional_code_block("ERROR", Some("error message"))
+            .build();
+        assert!(prompt.contains("ERROR:"));
+        assert!(prompt.contains("error message"));
+    }
+
+    #[test]
+    fn test_prompt_builder_optional_code_block_none() {
+        let prompt = PromptBuilder::new()
+            .section("Before")
+            .optional_code_block("ERROR", None)
+            .section("After")
+            .build();
+        assert!(!prompt.contains("ERROR:"));
+        assert!(prompt.contains("Before"));
+        assert!(prompt.contains("After"));
+    }
+
+    #[test]
+    fn test_prompt_builder_rules() {
+        let prompt = PromptBuilder::new()
+            .rules(&["- Rule 1", "- Rule 2", "- Rule 3"])
+            .build();
+        assert!(prompt.contains("RULES:"));
+        assert!(prompt.contains("- Rule 1"));
+        assert!(prompt.contains("- Rule 2"));
+        assert!(prompt.contains("- Rule 3"));
+    }
+
+    #[test]
+    fn test_prompt_builder_full_composition() {
+        let prompt = PromptBuilder::new()
+            .section("Preamble")
+            .context("Task", "build something")
+            .code_block("EXAMPLE", "let x = 1;")
+            .rules(&["- Be nice", "- Work well"])
+            .build();
+
+        assert!(prompt.contains("Preamble"));
+        assert!(prompt.contains("Task:"));
+        assert!(prompt.contains("\"build something\""));
+        assert!(prompt.contains("EXAMPLE:"));
+        assert!(prompt.contains("```typescript"));
+        assert!(prompt.contains("let x = 1;"));
+        assert!(prompt.contains("RULES:"));
+        assert!(prompt.contains("- Be nice"));
+    }
+
+    #[test]
+    fn test_prompt_builder_empty() {
+        let prompt = PromptBuilder::new().build();
+        assert_eq!(prompt, "");
     }
 }
