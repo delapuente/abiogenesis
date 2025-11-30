@@ -91,6 +91,12 @@
                     <h3>Cache</h3>
                     <p>Stores generated commands for instant reuse</p>
                 </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🔄</div>
+                    <h3>Iterate</h3>
+                    <p>Improve commands with corrective feedback using --nope</p>
+                </div>
             </div>
         </section>
 
@@ -174,6 +180,63 @@ ergo "create a backup"</code></pre>
 ergo "format this json file"
 ergo "find todos in code"
 ergo "git status summary"</code></pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Corrective Feedback Section -->
+        <section class="feedback">
+            <div class="section-header">
+                <h2>Corrective Feedback</h2>
+                <p>Commands not quite right? Iterate with --nope</p>
+            </div>
+
+            <div class="feedback-demo">
+                <div class="terminal terminal-wide">
+                    <div class="terminal-header">
+                        <div class="terminal-buttons">
+                            <div class="btn-close"></div>
+                            <div class="btn-minimize"></div>
+                            <div class="btn-maximize"></div>
+                        </div>
+                        <div class="terminal-title">Corrective Feedback Loop</div>
+                    </div>
+                    <div class="terminal-body">
+                        <div class="terminal-line">
+                            <span class="prompt">$ </span>
+                            <span class="command">ergo password</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="weather-output">x7k2m</span>
+                            <span class="comment"># Too short!</span>
+                        </div>
+                        <div class="terminal-line">
+                            <span class="prompt">$ </span>
+                            <span class="command">ergo --nope "make it 20 chars with symbols"</span>
+                        </div>
+                        <div class="terminal-line output">
+                            <span class="weather-output">K9$mX2@pL5#nR8&vQ1!w</span>
+                            <span class="comment"># Perfect!</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="feedback-features">
+                    <div class="feedback-card">
+                        <h4>Provide Feedback</h4>
+                        <p>Tell ergo what you want changed and it regenerates the command</p>
+                        <div class="code-block">
+                            <pre><code>ergo --nope "add more symbols"</code></pre>
+                        </div>
+                    </div>
+
+                    <div class="feedback-card">
+                        <h4>Auto-fix Errors</h4>
+                        <p>Just run --nope to use stderr as context for automatic fixes</p>
+                        <div class="code-block">
+                            <pre><code>ergo --nope</code></pre>
+                        </div>
                     </div>
                 </div>
             </div>

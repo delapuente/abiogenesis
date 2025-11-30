@@ -7,6 +7,7 @@ Abiogenesis bridges intent (cogito) to execution (sum) by generating commands on
 ## ✨ Features
 
 - **Command Generation**: AI generates working Deno/TypeScript commands from natural language
+- **Corrective Feedback**: Iteratively improve commands with `--nope` when they don't meet expectations
 - **Intelligent Caching**: Generated commands are cached and reused across sessions
 - **Sandboxed Execution**: All generated code runs in Deno's secure sandbox with minimal permissions
 - **Fallback to System**: Existing system commands work normally - only generates when commands don't exist
@@ -129,6 +130,34 @@ ergo current-timestamp   # Show current timestamp
 ```bash
 ergo project-info        # Show project details (git branch, file count, etc.)
 ```
+
+### Corrective Feedback
+
+When a generated command doesn't work as expected, use `--nope` to improve it:
+
+```bash
+# Generate a password command
+ergo password
+# Output: "x7k2m"  (too short!)
+
+# Provide feedback to regenerate with improvements
+ergo --nope "make it at least 20 characters with uppercase, numbers, and symbols"
+# Output: "K9$mX2@pL5#nR8&vQ1!w"
+
+# Or if the command failed with an error, just run --nope
+# to use the stderr as context for regeneration
+ergo broken-command
+# Error: TypeError: Cannot read property 'foo' of undefined
+
+ergo --nope
+# Regenerates the command using the error output as context
+```
+
+The corrective feedback loop:
+- Preserves the command name
+- Includes stderr from the last execution (if any) as context
+- Accepts optional feedback text to guide improvements
+- Re-prompts for permission approval since the code changed
 
 ## 🏗️ Architecture
 

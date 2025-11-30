@@ -396,6 +396,52 @@ section {
     border: none;
 }
 
+/* Feedback Section */
+.feedback {
+    padding: 5rem 2rem;
+}
+
+.feedback-demo {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.terminal-wide {
+    margin-bottom: 2rem;
+}
+
+.terminal-line .comment {
+    color: var(--text-muted);
+    margin-left: 1rem;
+}
+
+.feedback-features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 2rem;
+}
+
+.feedback-card {
+    background: var(--bg-card);
+    padding: 2rem;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+}
+
+.feedback-card h4 {
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.feedback-card p {
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+}
+
+.feedback-card .code-block {
+    margin: 0;
+}
+
 /* Security Section */
 .security {
     background: var(--bg-light);
