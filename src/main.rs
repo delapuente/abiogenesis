@@ -85,9 +85,10 @@ async fn main() -> anyhow::Result<()> {
         .arg(Arg::new("nope")
             .short('n')
             .long("nope")
-            .help("Provide feedback to regenerate the last command")
+            .help("Regenerate the last command (uses stderr as context if no feedback provided)")
             .value_name("FEEDBACK")
-            .num_args(1))
+            .num_args(0..=1)
+            .default_missing_value(""))
         .get_matches();
     
     // Setup logging early, but after parsing verbose flag
