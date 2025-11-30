@@ -27,6 +27,7 @@
 
 use crate::{
     command_cache::{CommandCache, PermissionConsent},
+    execution_context::ExecutionContext,
     executor::Executor,
     llm_generator::{CommandGenerator, LlmGenerator},
     permission_ui::PermissionUI,
@@ -222,6 +223,101 @@ impl CommandRouter {
             // User denied permission, don't execute
             Ok(())
         }
+    }
+
+    /// Processes corrective feedback loop to regenerate a command.
+    ///
+    /// This method loads the last execution context, regenerates the command
+    /// with user feedback (or stderr if no feedback provided), and re-executes.
+    ///
+    /// # Arguments
+    ///
+    /// * `feedback` - User feedback about what went wrong (empty string uses stderr only)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No previous execution context exists
+    /// - Command regeneration fails
+    /// - Cache operations fail
+    pub async fn process_corrective_feedback(&mut self, feedback: &str) -> Result<()> {
+        // Load the last execution context
+        let context = match ExecutionContext::load()? {
+            Some(ctx) => ctx,
+            None => {
+                eprintln!("No previous command execution found. Run a command first, then use --nope.");
+                return Ok(());
+            }
+        };
+
+        if self.verbose {
+            println!("🔄 Regenerating command '{}'...", context.command_name);
+            if !feedback.is_empty() {
+                println!("💭 Feedback: {}", feedback);
+            } else if context.stderr.is_some() {
+                println!("💭 Using stderr from last execution as context");
+            }
+        }
+
+        info!(
+            "Regenerating command '{}' with feedback: {}",
+            context.command_name, feedback
+        );
+
+        // Regenerate the command with feedback
+        let generation_result = self
+            .generator
+            .regenerate_command_with_feedback(
+                &context.command_name,
+                &context.script_content,
+                context.stderr.as_deref(),
+                feedback,
+            )
+            .await?;
+
+        if self.verbose {
+            println!("✨ Command regenerated successfully!");
+            println!("📝 New description: {}", generation_result.command.description);
+        }
+
+        // Update the command in cache
+        self.cache
+            .store_command(
+                &context.command_name,
+                &generation_result.command,
+                &generation_result.script_content,
+            )
+            .await?;
+
+        // Check permissions and execute
+        if let Some(decision) = self
+            .check_and_request_permissions(&context.command_name, &generation_result.command)
+            .await?
+        {
+            match decision.consent {
+                PermissionConsent::AcceptOnce | PermissionConsent::AcceptForever => {
+                    self.permission_ui.show_running_with_permissions(
+                        &context.command_name,
+                        &generation_result.command.permissions,
+                    );
+                    self.cache.update_usage(&context.command_name).await?;
+                    let _result = self
+                        .executor
+                        .execute_generated_command_with_context(
+                            &generation_result.command,
+                            &self.cache,
+                            &[],
+                        )
+                        .await;
+                }
+                PermissionConsent::Denied => {
+                    self.permission_ui
+                        .show_permission_denied(&context.command_name);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Checks and requests permission consent for a command.
